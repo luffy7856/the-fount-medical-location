@@ -5,6 +5,7 @@ import { specialties, type Specialty } from "@/data/specialties";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+export const preferredRegion = "icn1";
 
 const COLORS = ["#169e91", "#f26b4a", "#8b66d2", "#3f8fe6", "#e5a33f", "#347bc6"];
 const SPECIALTY_TERMS: Record<Specialty, string[]> = {
@@ -138,7 +139,7 @@ function osmKind(tags: Record<string, string>): LivePlaceKind | null {
 async function fetchOsmPlaces(latitude: number, longitude: number, radius: number) {
   const accessRadius = Math.min(radius, 1200);
   const query = `[out:json][timeout:12];(nwr(around:${radius},${latitude},${longitude})[amenity~"hospital|clinic|doctors|dentist|pharmacy"];nwr(around:${radius},${latitude},${longitude})[healthcare~"hospital|clinic|doctor|dentist"];nwr(around:${accessRadius},${latitude},${longitude})[amenity="parking"];nwr(around:${accessRadius},${latitude},${longitude})[highway="bus_stop"];nwr(around:${accessRadius},${latitude},${longitude})[railway~"station|tram_stop"];);out center tags;`;
-  const endpoints = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+  const endpoints = ["https://overpass.osm.jp/api/interpreter", "https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
   let data: { elements?: Record<string, any>[] } | null = null;
   for (const endpoint of endpoints) {
     try {
