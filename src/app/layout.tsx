@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import "leaflet/dist/leaflet.css";
 import "./globals.css";
 
 const title = "병원 입지분석 | AI 병원 상권분석 | THE FOUNT";
 const description =
-  "병원 개원 예정지를 입력하면 유동인구, 경쟁병원, 소비력, 접근성, 임대료, 성장성을 분석해 진료과별 입지점수와 향후 상권전망을 제공합니다.";
+  "병원 개원 예정지를 입력하면 실제 공개 지도 데이터를 조회해 주변 의료기관, 약국, 대중교통, 주차시설과 진료과별 경쟁환경을 확인할 수 있습니다.";
 
 export const metadata: Metadata = {
   title,
