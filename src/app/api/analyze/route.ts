@@ -136,26 +136,14 @@ function osmKind(tags: Record<string, string>): LivePlaceKind | null {
   return null;
 }
 
-async function fetchOsmPlaces(latitude: number, longitude: number, radius: number) {
+function buildOsmQuery(latitude: number, longitude: number, radius: number) {
   const accessRadius = Math.min(radius, 1200);
-  const query = `[out:json][timeout:12];(nwr(around:${radius},${latitude},${longitude})[amenity~"hospital|clinic|doctors|dentist|pharmacy"];nwr(around:${radius},${latitude},${longitude})[healthcare~"hospital|clinic|doctor|dentist"];nwr(around:${accessRadius},${latitude},${longitude})[amenity="parking"];nwr(around:${accessRadius},${latitude},${longitude})[highway="bus_stop"];nwr(around:${accessRadius},${latitude},${longitude})[railway~"station|tram_stop"];);out center tags;`;
-  const endpoints = ["https://overpass.osm.jp/api/interpreter", "https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
-  let data: { elements?: Record<string, any>[] } | null = null;
-  for (const endpoint of endpoints) {
-    try {
-      const url = new URL(endpoint);
-      url.searchParams.set("data", query);
-      const response = await fetch(url, {
-        headers: { "User-Agent": "THE-FOUNT-Medical-Location/1.0" },
-        next: { revalidate: 900 },
-        signal: AbortSignal.timeout(9000)
-      });
-      if (response.ok) { data = await response.json(); break; }
-    } catch { /* 다음 공개 미러로 재시도 */ }
-  }
-  if (!data) throw new Error("주변 시설 데이터가 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요.");
+  return `[out:json][timeout:12];(nwr(around:${radius},${latitude},${longitude})[amenity~"hospital|clinic|doctors|dentist|pharmacy"];nwr(around:${radius},${latitude},${longitude})[healthcare~"hospital|clinic|doctor|dentist"];nwr(around:${accessRadius},${latitude},${longitude})[amenity="parking"];nwr(around:${accessRadius},${latitude},${longitude})[highway="bus_stop"];nwr(around:${accessRadius},${latitude},${longitude})[railway~"station|tram_stop"];);out center tags;`;
+}
+
+function normalizeOsmElements(elements: Record<string, any>[], latitude: number, longitude: number) {
   const seen = new Set<string>();
-  return (data.elements || []).flatMap((item: Record<string, any>): LivePlace[] => {
+  return elements.flatMap((item: Record<string, any>): LivePlace[] => {
     const tags = item.tags || {};
     const kind = osmKind(tags);
     const lat = Number(item.lat ?? item.center?.lat);
@@ -175,6 +163,26 @@ async function fetchOsmPlaces(latitude: number, longitude: number, radius: numbe
       url: tags.website
     }];
   }).sort((a: LivePlace, b: LivePlace) => a.distanceMeters - b.distanceMeters);
+}
+
+async function fetchOsmPlaces(latitude: number, longitude: number, radius: number) {
+  const query = buildOsmQuery(latitude, longitude, radius);
+  const endpoints = ["https://overpass.osm.jp/api/interpreter", "https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+  let data: { elements?: Record<string, any>[] } | null = null;
+  for (const endpoint of endpoints) {
+    try {
+      const url = new URL(endpoint);
+      url.searchParams.set("data", query);
+      const response = await fetch(url, {
+        headers: { "User-Agent": "THE-FOUNT-Medical-Location/1.0" },
+        next: { revalidate: 900 },
+        signal: AbortSignal.timeout(9000)
+      });
+      if (response.ok) { data = await response.json(); break; }
+    } catch { /* 다음 공개 미러로 재시도 */ }
+  }
+  if (!data) throw new Error("주변 시설 데이터가 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요.");
+  return normalizeOsmElements(data.elements || [], latitude, longitude);
 }
 
 function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[]): LocationAnalysis {
@@ -238,10 +246,20 @@ export async function POST(request: NextRequest) {
       const geocoded = kakaoKey ? await geocodeKakao(address, kakaoKey) : await geocodeOsm(address);
       ({ latitude, longitude, displayName } = geocoded);
     }
-    const places = kakaoKey
-      ? await fetchKakaoPlaces(kakaoKey, latitude, longitude, radiusMeters)
-      : await fetchOsmPlaces(latitude, longitude, radiusMeters);
-    return NextResponse.json(buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places));
+    let places: LivePlace[] = [];
+    let needsClientFetch = false;
+    if (Array.isArray(body.osmElements) && body.osmElements.length <= 1500) {
+      places = normalizeOsmElements(body.osmElements, latitude, longitude);
+    } else if (kakaoKey) {
+      places = await fetchKakaoPlaces(kakaoKey, latitude, longitude, radiusMeters);
+    } else if (process.env.VERCEL) {
+      needsClientFetch = true;
+    } else {
+      try { places = await fetchOsmPlaces(latitude, longitude, radiusMeters); }
+      catch { needsClientFetch = true; }
+    }
+    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places);
+    return NextResponse.json({ ...analysis, needsClientFetch, osmQuery: needsClientFetch ? buildOsmQuery(latitude, longitude, radiusMeters) : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";
     return NextResponse.json({ error: message }, { status: 500 });

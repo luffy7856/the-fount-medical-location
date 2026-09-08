@@ -48,4 +48,6 @@ export type LocationAnalysis = {
   strengths: string[];
   risks: string[];
   limitations: string[];
+  needsClientFetch?: boolean;
+  osmQuery?: string;
 };

@@ -111,7 +111,17 @@ export default function LocationLab() {
       const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: payload.address ?? addressInput, latitude: payload.latitude, longitude: payload.longitude, specialty: payload.specialty ?? specialty, radiusMeters: payload.radiusMeters ?? radiusMeters }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "분석 데이터를 불러오지 못했습니다.");
-      const result = data as LocationAnalysis;
+      let result = data as LocationAnalysis;
+      if (result.needsClientFetch && result.osmQuery) {
+        const overpassUrl = `https://overpass.osm.jp/api/interpreter?data=${encodeURIComponent(result.osmQuery)}`;
+        const liveResponse = await fetch(overpassUrl);
+        if (!liveResponse.ok) throw new Error("공개 지도 데이터가 혼잡합니다. 잠시 후 다시 분석해주세요.");
+        const liveData = await liveResponse.json();
+        const completedResponse = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: result.location.displayName, latitude: result.location.latitude, longitude: result.location.longitude, specialty: result.specialty, radiusMeters: result.radiusMeters, osmElements: liveData.elements || [] }) });
+        const completed = await completedResponse.json();
+        if (!completedResponse.ok) throw new Error(completed.error || "조회 결과를 분석하지 못했습니다.");
+        result = completed as LocationAnalysis;
+      }
       setAnalysis(result); setSpecialty(result.specialty); setAddressInput(result.location.displayName.split(",")[0]); setSaved(current => [...current.filter(item => item.location.latitude !== result.location.latitude || item.location.longitude !== result.location.longitude), result].slice(-4)); setTab("overview"); setMobileFilter(false);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "분석 중 오류가 발생했습니다."); }
     finally { setLoading(false); }
