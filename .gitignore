@@ -5,3 +5,7 @@ out
 !.env.example
 .vercel
 *.log
+.tools
+.gh-config
+
+.vercel
