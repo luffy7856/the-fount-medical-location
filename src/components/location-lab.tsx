@@ -123,7 +123,14 @@ export default function LocationLab() {
   const runAnalysis = useCallback(async (payload: { address?: string; latitude?: number; longitude?: number; specialty?: Specialty; radiusMeters?: number }) => {
     setLoading(true); setError(""); setSelectedPlace(null);
     try {
-      const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: payload.address ?? addressInput, latitude: payload.latitude, longitude: payload.longitude, specialty: payload.specialty ?? specialty, radiusMeters: payload.radiusMeters ?? radiusMeters }) });
+      const requestBody = {
+        ...(typeof payload.address === "string" ? { address: payload.address } : {}),
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        specialty: payload.specialty ?? specialty,
+        radiusMeters: payload.radiusMeters ?? radiusMeters
+      };
+      const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "분석 데이터를 불러오지 못했습니다.");
       let result = data as LocationAnalysis;
