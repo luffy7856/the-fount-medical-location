@@ -3,8 +3,8 @@
 import dynamic from "next/dynamic";
 import {
   Activity, AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight,
-  Download, GitCompareArrows, Hospital, Layers3, LocateFixed, MapPin, Menu, Printer,
-  Search, ShieldCheck, Sparkles, X
+  Building2, Calculator, Coins, Download, GitCompareArrows, Hospital, Layers3,
+  LocateFixed, MapPin, Menu, Printer, Search, ShieldCheck, Sparkles, TimerReset, X
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { specialties, type Specialty } from "@/data/specialties";
@@ -12,7 +12,36 @@ import type { LocationAnalysis, LiveMetric, LivePlace } from "@/data/location-ty
 
 const LiveMap = dynamic(() => import("./live-map"), { ssr: false, loading: () => <div className="map-loading"><Activity className="spin" /> 지도를 불러오는 중</div> });
 
-type PanelTab = "overview" | "competitors" | "forecast" | "compare";
+type PanelTab = "overview" | "competitors" | "forecast" | "profitability" | "compare";
+
+type OpeningInputs = {
+  floor: number;
+  areaPyeong: number;
+  depositManwon: number;
+  monthlyRentManwon: number;
+  openingBudgetManwon: number;
+  monthlyPayrollManwon: number;
+  monthlyMarketingManwon: number;
+};
+
+const SPECIALTY_FINANCE: Record<Specialty, { revenuePerPyeong: number; benchmarkCapitalPerPyeong: number; variableCostRate: number; otherFixedPerPyeong: number }> = {
+  "내과": { revenuePerPyeong: 215, benchmarkCapitalPerPyeong: 780, variableCostRate: .16, otherFixedPerPyeong: 24 },
+  "정형외과": { revenuePerPyeong: 290, benchmarkCapitalPerPyeong: 1250, variableCostRate: .2, otherFixedPerPyeong: 31 },
+  "피부과": { revenuePerPyeong: 390, benchmarkCapitalPerPyeong: 1650, variableCostRate: .27, otherFixedPerPyeong: 38 },
+  "성형외과": { revenuePerPyeong: 420, benchmarkCapitalPerPyeong: 1900, variableCostRate: .3, otherFixedPerPyeong: 42 },
+  "소아청소년과": { revenuePerPyeong: 190, benchmarkCapitalPerPyeong: 720, variableCostRate: .15, otherFixedPerPyeong: 23 },
+  "치과": { revenuePerPyeong: 330, benchmarkCapitalPerPyeong: 1800, variableCostRate: .24, otherFixedPerPyeong: 36 },
+  "한의원": { revenuePerPyeong: 205, benchmarkCapitalPerPyeong: 680, variableCostRate: .18, otherFixedPerPyeong: 22 },
+  "산부인과": { revenuePerPyeong: 250, benchmarkCapitalPerPyeong: 1300, variableCostRate: .2, otherFixedPerPyeong: 32 },
+  "안과": { revenuePerPyeong: 315, benchmarkCapitalPerPyeong: 1750, variableCostRate: .23, otherFixedPerPyeong: 36 },
+  "이비인후과": { revenuePerPyeong: 225, benchmarkCapitalPerPyeong: 860, variableCostRate: .16, otherFixedPerPyeong: 25 },
+  "기타": { revenuePerPyeong: 230, benchmarkCapitalPerPyeong: 1000, variableCostRate: .2, otherFixedPerPyeong: 28 }
+};
+
+const DEFAULT_OPENING_INPUTS: OpeningInputs = {
+  floor: 3, areaPyeong: 50, depositManwon: 10000, monthlyRentManwon: 700,
+  openingBudgetManwon: 50000, monthlyPayrollManwon: 2500, monthlyMarketingManwon: 500
+};
 
 const EMPTY_ANALYSIS: LocationAnalysis = {
   mode: "live", provider: "openstreetmap", analyzedAt: new Date(0).toISOString(),
@@ -63,14 +92,61 @@ function formatCount(analysis: LocationAnalysis, key: keyof LocationAnalysis["co
   return `${analysis.counts[key]}곳${analysis.countLimits?.[key] ? " 이상" : ""}`;
 }
 
-function OverviewPanel({ analysis, onTab }: { analysis: LocationAnalysis; onTab: (tab: PanelTab) => void }) {
+function calculateOpeningPlan(analysis: LocationAnalysis, inputs: OpeningInputs) {
+  const benchmark = SPECIALTY_FINANCE[analysis.specialty];
+  const floorFactor = inputs.floor <= 0 ? .82 : inputs.floor === 1 ? 1.06 : inputs.floor === 2 ? 1 : inputs.floor === 3 ? .96 : .9;
+  const locationFactor = .78 + Math.min(Math.max(analysis.observedScore, 45), 95) / 220;
+  const expectedRevenue = Math.round(inputs.areaPyeong * benchmark.revenuePerPyeong * floorFactor * locationFactor);
+  const variableCost = expectedRevenue * benchmark.variableCostRate;
+  const otherFixed = inputs.areaPyeong * benchmark.otherFixedPerPyeong;
+  const monthlyOperatingProfit = Math.round(expectedRevenue - variableCost - inputs.monthlyRentManwon - inputs.monthlyPayrollManwon - inputs.monthlyMarketingManwon - otherFixed);
+  const totalCashInvestment = inputs.depositManwon + inputs.openingBudgetManwon;
+  const benchmarkCapital = Math.round(inputs.areaPyeong * benchmark.benchmarkCapitalPerPyeong);
+  const paybackMonths = monthlyOperatingProfit > 0 ? Math.ceil(totalCashInvestment / monthlyOperatingProfit) : null;
+  return {
+    expectedRevenue,
+    revenueLow: Math.round(expectedRevenue * .85),
+    revenueHigh: Math.round(expectedRevenue * 1.15),
+    monthlyOperatingProfit,
+    totalCashInvestment,
+    benchmarkCapital,
+    paybackMonths,
+    rentRatio: expectedRevenue > 0 ? Math.round(inputs.monthlyRentManwon / expectedRevenue * 1000) / 10 : 0,
+    capitalDifference: benchmarkCapital > 0 ? Math.round((totalCashInvestment / benchmarkCapital - 1) * 100) : 0
+  };
+}
+
+function FinancialPlanningPanel({ analysis, inputs, onChange, compact = false }: { analysis: LocationAnalysis; inputs: OpeningInputs; onChange: (value: OpeningInputs) => void; compact?: boolean }) {
+  const result = calculateOpeningPlan(analysis, inputs);
+  const update = (key: keyof OpeningInputs, value: number) => onChange({ ...inputs, [key]: Number.isFinite(value) ? value : 0 });
+  const fields: [keyof OpeningInputs, string, string][] = [
+    ["floor", "입주 층", "층"], ["areaPyeong", "전용면적", "평"], ["depositManwon", "보증금", "만원"],
+    ["monthlyRentManwon", "월세", "만원/월"], ["openingBudgetManwon", "시설·장비 등 개원자금", "만원"],
+    ["monthlyPayrollManwon", "예상 월 인건비", "만원/월"], ["monthlyMarketingManwon", "예상 월 마케팅비", "만원/월"]
+  ];
+  return <section className={`panel-section feasibility-card ${compact ? "compact" : ""}`}>
+    <div className="feasibility-heading"><div><span>OPENING FEASIBILITY</span><h3>입지와 개원자금을 함께 비교합니다</h3><p>{analysis.specialty} 기준 참고모형에 층·면적·임대조건과 현재 입지 관측점수를 반영합니다.</p></div><Calculator /></div>
+    <div className="opening-input-grid">{fields.map(([key, label, unit]) => <label key={key}><span>{label}</span><div><input type="number" min={key === "floor" ? -2 : 0} value={inputs[key]} onChange={event => update(key, Number(event.target.value))} /><small>{unit}</small></div></label>)}</div>
+    <div className="feasibility-results">
+      <article><Building2 /><span>예상 월매출</span><b>{result.expectedRevenue.toLocaleString()}만원</b><small>{result.revenueLow.toLocaleString()}~{result.revenueHigh.toLocaleString()}만원 범위</small></article>
+      <article><Coins /><span>예상 월 영업잉여</span><b className={result.monthlyOperatingProfit <= 0 ? "negative" : ""}>{result.monthlyOperatingProfit.toLocaleString()}만원</b><small>세금·대출원리금·원장 보수 전</small></article>
+      <article><TimerReset /><span>예상 투자회수기간</span><b>{result.paybackMonths ? `${result.paybackMonths}개월` : "회수 어려움"}</b><small>보증금 포함 총투자액 기준</small></article>
+    </div>
+    <div className="benchmark-strip"><div><span>입력 총투자액</span><b>{result.totalCashInvestment.toLocaleString()}만원</b></div><ArrowRight /><div><span>{analysis.specialty} 면적 기준 참고 개원자금</span><b>{result.benchmarkCapital.toLocaleString()}만원</b></div><div className={result.capitalDifference > 10 ? "warning" : "healthy"}><span>참고값 대비</span><b>{result.capitalDifference > 0 ? "+" : ""}{result.capitalDifference}%</b></div></div>
+    <div className="planning-notes"><span>월세/예상매출 {result.rentRatio}%</span><span>{inputs.floor}층 입지 보정 반영</span><span>입지점수 {analysis.observedScore || "—"}점 반영</span></div>
+    <p className="estimate-disclaimer">본 수치는 입력값과 진료과별 내부 참고계수를 이용한 사전 시뮬레이션이며 보장 매출이 아닙니다. 실제 개원 전에는 상권·수가·장비·인력·운영일수와 금융조건을 별도로 검증해야 합니다.</p>
+  </section>;
+}
+
+function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs }: { analysis: LocationAnalysis; onTab: (tab: PanelTab) => void; openingInputs: OpeningInputs; onOpeningInputs: (value: OpeningInputs) => void }) {
   const stats = [
     ["전체 의료기관", formatCount(analysis, "medical"), analysis.countLimits?.medical ? "카카오 조회 상한 도달" : "지도 전체 표시"],
     [`${analysis.specialty} 검색`, formatCount(analysis, "matchingSpecialty"), "카카오 분류·검색 기준"],
     ["약국", formatCount(analysis, "pharmacy"), analysis.countLimits?.pharmacy ? "카카오 조회 상한 도달" : "반경 내"],
     ["지하철역", formatCount(analysis, "transit"), "카카오 역 카테고리"],
     ["주차시설", formatCount(analysis, "parking"), analysis.countLimits?.parking ? "카카오 조회 상한 도달" : "공개 등록 기준"],
-    ["분석 반경", `${analysis.radiusMeters.toLocaleString()}m`, analysis.provider === "kakao" ? "Kakao Local" : "OpenStreetMap"]
+    ["분석 반경", `${analysis.radiusMeters.toLocaleString()}m`, analysis.provider === "kakao" ? "Kakao Local" : "OpenStreetMap"],
+    ...(analysis.demographics ? [["거주인구", `${analysis.demographics.residentPopulation.toLocaleString()}명`, `${analysis.demographics.areaName} · SGIS ${analysis.demographics.year}`], ["종사자", `${analysis.demographics.workerPopulation.toLocaleString()}명`, `${analysis.demographics.businesses.toLocaleString()}개 사업체`]] : [])
   ];
   return <div className="panel-content">
     <div className="location-heading"><div><span><MapPin /> 실제 분석 지역</span><h2>{analysis.location.displayName.split(",")[0]}</h2><p>{analysis.specialty} · 반경 {analysis.radiusMeters.toLocaleString()}m</p></div></div>
@@ -80,6 +156,7 @@ function OverviewPanel({ analysis, onTab }: { analysis: LocationAnalysis; onTab:
     <section className="panel-section"><div className="panel-title"><div><span>CONNECTED FACTORS</span><h3>실제 데이터 연결 현황</h3></div><button onClick={() => onTab("competitors")}>경쟁병원 <ChevronRight /></button></div><MetricBars metrics={analysis.metrics} /></section>
     <section className="panel-section ai-insight"><div className="ai-heading"><Sparkles /><div><span>LOCATION INTERPRETATION</span><h3>현재 데이터에 대한 해석</h3></div></div><p>{analysis.insight}</p><div className="pros-cons"><div><b><Check /> 확인된 신호</b>{analysis.strengths.map(item => <span key={item}>{item}</span>)}</div><div><b><AlertTriangle /> 확인 필요</b>{analysis.risks.map(item => <span key={item}>{item}</span>)}</div></div></section>
     <section className="panel-section data-coverage"><span>DATA ROADMAP</span><h3>정밀점수에 필요한 추가 데이터</h3><p>건강보험심사평가원·통계청·상권·임대료 API 인증키를 연결하면 잠재환자, 소비력, 비용효율, 성장성까지 실제 수치로 확장됩니다.</p></section>
+    <FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={onOpeningInputs} compact />
     <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><button>정밀 개원분석 상담하기 <ArrowRight /></button></section>
     <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span><span>실제 좌표</span><span>실제 등록 장소</span></div><small>분석 시각 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")} · 공개 데이터의 등록 상태에 따라 현장과 차이가 있을 수 있습니다.</small></section>
   </div>;
@@ -118,6 +195,7 @@ export default function LocationLab() {
   const [mobileFilter, setMobileFilter] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [openingInputs, setOpeningInputs] = useState<OpeningInputs>(DEFAULT_OPENING_INPUTS);
   const [activeKinds, setActiveKinds] = useState(() => new Set(LIVE_LAYERS.map(layer => layer.id)));
 
   const runAnalysis = useCallback(async (payload: { address?: string; latitude?: number; longitude?: number; specialty?: Specialty; radiusMeters?: number }) => {
@@ -166,7 +244,7 @@ export default function LocationLab() {
   }, [runAnalysis]);
 
   return <main id="top" className="app-shell">
-    <header className="app-header"><Brand /><div className="header-status"><span><i /> LIVE BETA</span><b>실제 공개 데이터 기반</b></div><nav><button onClick={() => setTab("compare")}>후보지</button><button onClick={() => setTab("overview")}>분석 리포트</button><button onClick={printReport}><Download /> PDF·인쇄</button><button>개원 수익성</button><button className="account">TF</button></nav><button className="mobile-menu" onClick={() => setMobileFilter(!mobileFilter)}>{mobileFilter ? <X /> : <Menu />}</button></header>
+    <header className="app-header"><Brand /><div className="header-status"><span><i /> LIVE BETA</span><b>실제 공개 데이터 기반</b></div><nav><button onClick={() => setTab("compare")}>후보지</button><button onClick={() => setTab("overview")}>분석 리포트</button><button onClick={printReport}><Download /> PDF·인쇄</button><button onClick={() => setTab("profitability")}>개원 수익성</button><button className="account">TF</button></nav><button className="mobile-menu" onClick={() => setMobileFilter(!mobileFilter)}>{mobileFilter ? <X /> : <Menu />}</button></header>
     <form className={`filter-bar live-filter ${mobileFilter ? "mobile-open" : ""}`} onSubmit={submit}>
       <label className="search-field"><Search /><input value={addressInput} onChange={event => setAddressInput(event.target.value)} placeholder="도로명 주소, 건물명, 역 이름 검색" /><button type="button" title="현재 위치" onClick={useCurrentLocation}><LocateFixed /></button></label>
       <label><span>진료과</span><select value={specialty} onChange={event => setSpecialty(event.target.value as Specialty)}>{specialties.map(item => <option key={item}>{item}</option>)}</select><ChevronDown /></label>
@@ -181,7 +259,7 @@ export default function LocationLab() {
         <div className="layer-control"><button className="layer-trigger" onClick={() => setLayerOpen(!layerOpen)}><Layers3 /> 실제 지도 레이어 <b>{activeKinds.size}</b><ChevronDown /></button>{layerOpen && <div className="layer-menu"><div><b>표시할 실제 데이터</b><button onClick={() => setLayerOpen(false)}><X /></button></div>{LIVE_LAYERS.map(layer => <label key={layer.id}><input type="checkbox" checked={activeKinds.has(layer.id)} onChange={() => toggleLayer(layer.id)} /><i style={{ background: layer.color }} /><span>{layer.label}</span></label>)}<small>지도 클릭 시 해당 좌표를 새로 분석합니다.</small></div>}</div>
         <div className="live-map-note"><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span></div>
       </section>
-      <aside className="analysis-panel"><div className="print-report-header"><Brand /><span>병원 입지분석 리포트</span><small>발행 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")}</small></div><div className="sheet-handle" /><div className="panel-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>지역분석</button><button className={tab === "competitors" ? "active" : ""} onClick={() => setTab("competitors")}>경쟁병원</button><button className={tab === "forecast" ? "active" : ""} onClick={() => setTab("forecast")}>3년전망</button><button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>후보지 비교</button><button className="mobile-print" onClick={printReport} title="PDF로 저장하거나 인쇄"><Printer /></button></div>{tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} />}{tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}{tab === "forecast" && <ForecastPanel />}{tab === "compare" && <ComparePanel saved={saved} />}</aside>
+      <aside className="analysis-panel"><div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>발행 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")}</small></div><div className="sheet-handle" /><div className="panel-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>지역분석</button><button className={tab === "competitors" ? "active" : ""} onClick={() => setTab("competitors")}>경쟁병원</button><button className={tab === "forecast" ? "active" : ""} onClick={() => setTab("forecast")}>3년전망</button><button className={tab === "profitability" ? "active" : ""} onClick={() => setTab("profitability")}>수익성</button><button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>후보지 비교</button><button className="mobile-print" onClick={printReport} title="PDF로 저장하거나 인쇄"><Printer /></button></div>{tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} />}{tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}{tab === "forecast" && <ForecastPanel />}{tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}{tab === "compare" && <ComparePanel saved={saved} />}</aside>
     </div>
     {loading && <div className="loading-mask"><div><Activity className="spin" /><b>{specialty} 주변 실제 데이터를 조회하고 있습니다</b><span>주소 좌표 · 의료기관 · 약국 · 지하철역 · 주차</span></div></div>}
   </main>;

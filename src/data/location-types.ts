@@ -62,6 +62,17 @@ export type LocationAnalysis = {
   strengths: string[];
   risks: string[];
   limitations: string[];
+  demographics?: {
+    source: "SGIS";
+    year: number;
+    areaName: string;
+    administrativeCode: string;
+    residentPopulation: number;
+    workerPopulation: number;
+    households: number;
+    businesses: number;
+    averageAge: number | null;
+  };
   needsClientFetch?: boolean;
   osmQuery?: string;
 };

@@ -103,6 +103,65 @@ async function reverseOsm(latitude: number, longitude: number) {
   return data?.display_name || `위도 ${latitude.toFixed(5)}, 경도 ${longitude.toFixed(5)}`;
 }
 
+type Demographics = NonNullable<LocationAnalysis["demographics"]>;
+
+async function fetchSgisDemographics(address: string): Promise<Demographics | undefined> {
+  const consumerKey = process.env.SGIS_CONSUMER_KEY;
+  const consumerSecret = process.env.SGIS_CONSUMER_SECRET;
+  if (!consumerKey || !consumerSecret) return undefined;
+  try {
+    const authUrl = new URL("https://sgisapi.mods.go.kr/OpenAPI3/auth/authentication.json");
+    authUrl.searchParams.set("consumer_key", consumerKey);
+    authUrl.searchParams.set("consumer_secret", consumerSecret);
+    const authResponse = await fetch(authUrl, { cache: "no-store", signal: AbortSignal.timeout(7000) });
+    const auth = authResponse.ok ? await authResponse.json() : null;
+    const accessToken = auth?.result?.accessToken;
+    if (!accessToken) return undefined;
+
+    const geocodeUrl = new URL("https://sgisapi.mods.go.kr/OpenAPI3/addr/geocode.json");
+    geocodeUrl.searchParams.set("accessToken", accessToken);
+    geocodeUrl.searchParams.set("address", address);
+    geocodeUrl.searchParams.set("resultcount", "1");
+    const geocodeResponse = await fetch(geocodeUrl, { cache: "no-store", signal: AbortSignal.timeout(7000) });
+    const geocode = geocodeResponse.ok ? await geocodeResponse.json() : null;
+    const matched = geocode?.result?.resultdata?.[0];
+    const administrativeCode = String(matched?.adm_cd || "").slice(0, 8);
+    if (administrativeCode.length < 5) return undefined;
+
+    const makeStatsUrl = (path: string) => {
+      const url = new URL(`https://sgisapi.mods.go.kr/OpenAPI3/stats/${path}.json`);
+      url.searchParams.set("accessToken", accessToken);
+      url.searchParams.set("year", "2024");
+      url.searchParams.set("adm_cd", administrativeCode);
+      url.searchParams.set("low_search", "0");
+      return url;
+    };
+    const [populationResponse, companyResponse] = await Promise.all([
+      fetch(makeStatsUrl("population"), { cache: "no-store", signal: AbortSignal.timeout(7000) }),
+      fetch(makeStatsUrl("company"), { cache: "no-store", signal: AbortSignal.timeout(7000) })
+    ]);
+    const populationData = populationResponse.ok ? await populationResponse.json() : null;
+    const companyData = companyResponse.ok ? await companyResponse.json() : null;
+    const population = populationData?.result?.[0];
+    const company = companyData?.result?.[0];
+    if (!population && !company) return undefined;
+    const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+    return {
+      source: "SGIS",
+      year: 2024,
+      areaName: population?.adm_nm || company?.adm_nm || matched?.adm_nm || matched?.sgg_nm || "선택 행정구역",
+      administrativeCode,
+      residentPopulation: number(population?.tot_ppltn),
+      workerPopulation: number(company?.tot_worker || population?.employee_cnt),
+      households: number(population?.tot_family),
+      businesses: number(company?.corp_cnt || population?.corp_cnt),
+      averageAge: Number.isFinite(Number(population?.avg_age)) ? Number(population.avg_age) : null
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 type KakaoSearchResult = { places: LivePlace[]; isTruncated: boolean };
 
 async function kakaoSearch(key: string, code: string, kind: LivePlaceKind, latitude: number, longitude: number, radius: number, query?: string): Promise<KakaoSearchResult> {
@@ -231,7 +290,7 @@ async function fetchOsmPlaces(latitude: number, longitude: number, radius: numbe
   return normalizeOsmElements(data.elements || [], latitude, longitude);
 }
 
-function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"]): LocationAnalysis {
+function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"], demographics?: Demographics): LocationAnalysis {
   const medical = places.filter(place => place.kind === "hospital");
   const matching = medical.filter(place => matchesSpecialty(place.name, place.specialty, specialty));
   const displayedCounts = {
@@ -247,11 +306,12 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
   const competitionBase = clamp(94 - (counts.matchingSpecialty || counts.medical * .35) * densityFactor);
   const competition = provider === "openstreetmap" && counts.matchingSpecialty === 0 ? Math.min(72, competitionBase) : competitionBase;
   const access = clamp(42 + Math.min(transit, 14) * 3 + Math.min(parking, 8) * 2 + Math.min(pharmacy, 10), 0, 92);
-  const observedScore = Math.round((competition + access) / 2);
-  const confidence = clamp((provider === "kakao" ? 66 : 42) + Math.min(places.length, 30) * .7, 35, provider === "kakao" ? 88 : 68);
+  const demand = demographics ? clamp(38 + (demographics.residentPopulation + demographics.workerPopulation * .55) / 1600) : null;
+  const observedScore = Math.round(demand === null ? (competition + access) / 2 : (competition + access + demand) / 3);
+  const confidence = clamp((provider === "kakao" ? 66 : 42) + Math.min(places.length, 30) * .7 + (demographics ? 8 : 0), 35, provider === "kakao" ? 94 : 76);
   const grade = observedScore >= 85 ? "A" : observedScore >= 75 ? "B+" : observedScore >= 65 ? "B" : "C";
   const metrics = [
-    { label: "잠재환자 수요", value: null, note: "인구 데이터 연동 필요", color: COLORS[0] },
+    { label: "잠재환자 수요", value: demand, note: demographics ? `${demographics.areaName} 인구·종사자` : "인구 데이터 연동 필요", color: COLORS[0] },
     { label: "경쟁환경", value: competition, note: `동일 진료과 검색 ${counts.matchingSpecialty}곳`, color: COLORS[1] },
     { label: "소비력", value: null, note: "소비 데이터 연동 필요", color: COLORS[2] },
     { label: "접근성", value: access, note: `지하철역 ${transit} · 주차 ${parking}`, color: COLORS[3] },
@@ -259,13 +319,14 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     { label: "성장성", value: null, note: "개발계획 데이터 연동 필요", color: COLORS[5] }
   ];
   const strengths = [
+    demographics ? `${demographics.areaName} 거주인구 ${demographics.residentPopulation.toLocaleString()}명 · 종사자 ${demographics.workerPopulation.toLocaleString()}명` : "주변 의료기관을 실제 지도에서 확인 가능",
     transit >= 2 ? `반경 내 지하철역 검색 ${transit}곳` : "주변 의료기관을 실제 지도에서 확인 가능",
     pharmacy >= 3 ? `주변 약국 ${pharmacy}곳으로 의료상권 형성` : `가까운 약국 ${pharmacy}곳 확인`,
     competition >= 75 ? `선택 진료과 표식 경쟁이 비교적 낮음` : "경쟁병원의 위치와 거리를 직접 확인 가능"
   ];
   const risks = [
     counts.matchingSpecialty >= 8 ? `선택 진료과 검색 ${counts.matchingSpecialty}곳으로 경쟁 주의` : "진료과 분류 누락 가능성 검토 필요",
-    "유동인구·소득·임대료는 아직 점수에 포함되지 않음",
+    demographics ? "SGIS 인구는 행정동 기준으로 반경 데이터와 범위가 다름" : "유동인구·소득·임대료는 아직 점수에 포함되지 않음",
     provider === "openstreetmap" ? "OpenStreetMap 등록 범위에 따라 누락 가능" : "공개 장소 데이터 기준으로 실제 운영정보 확인 필요"
   ];
   return {
@@ -273,9 +334,10 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     location: { displayName, latitude, longitude }, specialty, radiusMeters,
     places, counts, displayedCounts, countLimits,
     metrics, observedScore, grade, confidence,
-    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}${countLimits?.medical ? "곳 이상" : "곳"}과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}${countLimits?.matchingSpecialty ? "곳 이상" : "곳"}을 확인했습니다. 카카오 장소검색 상한에 도달한 항목은 최소 확인 개수로 표시합니다. 현재 점수는 경쟁환경과 지하철·주차 접근성만 반영한 베타 관측점수이며, 유동인구·소비력·임대료 데이터가 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
+    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}${countLimits?.medical ? "곳 이상" : "곳"}과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}${countLimits?.matchingSpecialty ? "곳 이상" : "곳"}을 확인했습니다.${demographics ? ` SGIS ${demographics.year}년 기준 ${demographics.areaName}의 거주인구는 ${demographics.residentPopulation.toLocaleString()}명, 종사자는 ${demographics.workerPopulation.toLocaleString()}명입니다.` : ""} 현재 점수는 연결된 공개 데이터만 반영한 베타 관측점수이며, 유동인구·소비력·임대료 데이터가 모두 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
     strengths, risks,
-    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", "인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다."]
+    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다."],
+    demographics
   };
 }
 
@@ -315,7 +377,8 @@ export async function POST(request: NextRequest) {
       try { places = await fetchOsmPlaces(latitude, longitude, radiusMeters); }
       catch { needsClientFetch = true; }
     }
-    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits);
+    const demographics = await fetchSgisDemographics(displayName);
+    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, demographics);
     return NextResponse.json({ ...analysis, needsClientFetch, osmQuery: needsClientFetch ? buildOsmQuery(latitude, longitude, radiusMeters) : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";
