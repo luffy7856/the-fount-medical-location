@@ -141,7 +141,9 @@ async function kakaoSearch(key: string, code: string, kind: LivePlaceKind, latit
     url: item.place_url
   }));
   const last = remaining.at(-1) || first;
-  return { places, isTruncated: last.meta?.is_end === false };
+  const totalCount = Number(first.meta?.total_count || places.length);
+  const pageableCount = Number(first.meta?.pageable_count || places.length);
+  return { places, isTruncated: last.meta?.is_end === false || totalCount > pageableCount };
 }
 
 async function fetchKakaoPlaces(key: string, latitude: number, longitude: number, radius: number, specialty: Specialty) {
