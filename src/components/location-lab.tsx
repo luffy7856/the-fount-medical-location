@@ -38,6 +38,17 @@ const LIVE_LAYERS = [
   { id: "parking", label: "주차시설", color: "#805ad5" }
 ];
 
+async function fetchOsmInBrowser(query: string) {
+  const endpoints = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.osm.jp/api/interpreter"];
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(`${endpoint}?data=${encodeURIComponent(query)}`, { signal: AbortSignal.timeout(9000) });
+      if (response.ok) return await response.json();
+    } catch { /* CORS 또는 혼잡 시 다음 공개 서버로 전환 */ }
+  }
+  throw new Error("공개 지도 데이터가 혼잡합니다. 잠시 후 다시 분석해주세요.");
+}
+
 function Brand() {
   return <a className="brand" href="#top"><span className="brand-symbol"><LocateFixed /></span><span><b>THE FOUNT</b><small>MEDICAL LOCATION</small></span></a>;
 }
@@ -113,10 +124,7 @@ export default function LocationLab() {
       if (!response.ok) throw new Error(data.error || "분석 데이터를 불러오지 못했습니다.");
       let result = data as LocationAnalysis;
       if (result.needsClientFetch && result.osmQuery) {
-        const overpassUrl = `https://overpass.osm.jp/api/interpreter?data=${encodeURIComponent(result.osmQuery)}`;
-        const liveResponse = await fetch(overpassUrl);
-        if (!liveResponse.ok) throw new Error("공개 지도 데이터가 혼잡합니다. 잠시 후 다시 분석해주세요.");
-        const liveData = await liveResponse.json();
+        const liveData = await fetchOsmInBrowser(result.osmQuery);
         const completedResponse = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: result.location.displayName, latitude: result.location.latitude, longitude: result.location.longitude, specialty: result.specialty, radiusMeters: result.radiusMeters, osmElements: liveData.elements || [] }) });
         const completed = await completedResponse.json();
         if (!completedResponse.ok) throw new Error(completed.error || "조회 결과를 분석하지 못했습니다.");
