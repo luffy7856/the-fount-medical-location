@@ -58,6 +58,20 @@ async function geocodeKakao(address: string, key: string) {
   return { latitude: Number(item.y), longitude: Number(item.x), displayName: item.address_name || item.road_address_name || item.place_name || address };
 }
 
+async function reverseKakao(latitude: number, longitude: number, key: string) {
+  const url = new URL("https://dapi.kakao.com/v2/local/geo/coord2address.json");
+  url.searchParams.set("x", String(longitude));
+  url.searchParams.set("y", String(latitude));
+  const response = await fetch(url, {
+    headers: { Authorization: `KakaoAK ${key}` },
+    cache: "no-store"
+  });
+  if (!response.ok) return reverseOsm(latitude, longitude);
+  const data = await response.json();
+  const item = data.documents?.[0];
+  return item?.road_address?.address_name || item?.address?.address_name || reverseOsm(latitude, longitude);
+}
+
 async function geocodeOsm(address: string) {
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("q", address);
@@ -89,23 +103,33 @@ async function reverseOsm(latitude: number, longitude: number) {
   return data?.display_name || `위도 ${latitude.toFixed(5)}, 경도 ${longitude.toFixed(5)}`;
 }
 
-async function kakaoCategory(key: string, code: string, kind: LivePlaceKind, latitude: number, longitude: number, radius: number) {
-  const pages = [1, 2, 3];
-  const results = await Promise.all(pages.map(async page => {
-    const url = new URL("https://dapi.kakao.com/v2/local/search/category.json");
+type KakaoSearchResult = { places: LivePlace[]; totalCount: number };
+
+async function kakaoSearch(key: string, code: string, kind: LivePlaceKind, latitude: number, longitude: number, radius: number, query?: string): Promise<KakaoSearchResult> {
+  const endpoint = query ? "keyword" : "category";
+  const makeUrl = (page: number) => {
+    const url = new URL(`https://dapi.kakao.com/v2/local/search/${endpoint}.json`);
     url.searchParams.set("category_group_code", code);
+    if (query) url.searchParams.set("query", query);
     url.searchParams.set("x", String(longitude));
     url.searchParams.set("y", String(latitude));
     url.searchParams.set("radius", String(Math.min(radius, 20000)));
     url.searchParams.set("sort", "distance");
     url.searchParams.set("size", "15");
     url.searchParams.set("page", String(page));
+    return url;
+  };
+  const requestPage = async (page: number) => {
+    const url = makeUrl(page);
     const response = await fetch(url, { headers: { Authorization: `KakaoAK ${key}` }, cache: "no-store" });
-    if (!response.ok) return [];
-    const data = await response.json();
-    return data.documents || [];
-  }));
-  return results.flat().map((item: Record<string, string>): LivePlace => ({
+    if (!response.ok) return { documents: [], meta: { total_count: 0, pageable_count: 0 } };
+    return response.json();
+  };
+  const first = await requestPage(1);
+  const pageCount = Math.min(3, Math.ceil(Number(first.meta?.pageable_count || first.documents?.length || 0) / 15));
+  const remaining = pageCount > 1 ? await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => requestPage(index + 2))) : [];
+  const documents = [first, ...remaining].flatMap(result => result.documents || []);
+  const places = documents.map((item: Record<string, string>): LivePlace => ({
     id: `${kind}-${item.id}`,
     name: item.place_name,
     kind,
@@ -116,16 +140,28 @@ async function kakaoCategory(key: string, code: string, kind: LivePlaceKind, lat
     address: item.road_address_name || item.address_name,
     url: item.place_url
   }));
+  return { places, totalCount: Number(first.meta?.total_count || places.length) };
 }
 
-async function fetchKakaoPlaces(key: string, latitude: number, longitude: number, radius: number) {
-  const [hospital, pharmacy, transit, parking] = await Promise.all([
-    kakaoCategory(key, "HP8", "hospital", latitude, longitude, radius),
-    kakaoCategory(key, "PM9", "pharmacy", latitude, longitude, radius),
-    kakaoCategory(key, "SW8", "transit", latitude, longitude, radius),
-    kakaoCategory(key, "PK6", "parking", latitude, longitude, radius)
+async function fetchKakaoPlaces(key: string, latitude: number, longitude: number, radius: number, specialty: Specialty) {
+  const [hospital, specialtyHospital, pharmacy, transit, parking] = await Promise.all([
+    kakaoSearch(key, "HP8", "hospital", latitude, longitude, radius),
+    kakaoSearch(key, "HP8", "hospital", latitude, longitude, radius, specialty === "기타" ? "병원" : specialty),
+    kakaoSearch(key, "PM9", "pharmacy", latitude, longitude, radius),
+    kakaoSearch(key, "SW8", "transit", latitude, longitude, radius),
+    kakaoSearch(key, "PK6", "parking", latitude, longitude, radius)
   ]);
-  return [...hospital, ...pharmacy, ...transit, ...parking];
+  const places = [...hospital.places, ...pharmacy.places, ...transit.places, ...parking.places];
+  return {
+    places,
+    totals: {
+      medical: hospital.totalCount,
+      matchingSpecialty: specialty === "기타" ? hospital.totalCount : specialtyHospital.totalCount,
+      pharmacy: pharmacy.totalCount,
+      transit: transit.totalCount,
+      parking: parking.totalCount
+    }
+  };
 }
 
 function osmKind(tags: Record<string, string>): LivePlaceKind | null {
@@ -185,43 +221,49 @@ async function fetchOsmPlaces(latitude: number, longitude: number, radius: numbe
   return normalizeOsmElements(data.elements || [], latitude, longitude);
 }
 
-function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[]): LocationAnalysis {
+function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"]): LocationAnalysis {
   const medical = places.filter(place => place.kind === "hospital");
   const matching = medical.filter(place => matchesSpecialty(place.name, place.specialty, specialty));
-  const pharmacy = places.filter(place => place.kind === "pharmacy").length;
-  const transit = places.filter(place => place.kind === "transit").length;
-  const parking = places.filter(place => place.kind === "parking").length;
+  const displayedCounts = {
+    medical: medical.length,
+    matchingSpecialty: matching.length,
+    pharmacy: places.filter(place => place.kind === "pharmacy").length,
+    transit: places.filter(place => place.kind === "transit").length,
+    parking: places.filter(place => place.kind === "parking").length
+  };
+  const counts = providerTotals || displayedCounts;
+  const { pharmacy, transit, parking } = counts;
   const densityFactor = radiusMeters <= 500 ? 6 : radiusMeters <= 1000 ? 4 : 2;
-  const competitionBase = clamp(94 - (matching.length || medical.length * .35) * densityFactor);
-  const competition = provider === "openstreetmap" && matching.length === 0 ? Math.min(72, competitionBase) : competitionBase;
+  const competitionBase = clamp(94 - (counts.matchingSpecialty || counts.medical * .35) * densityFactor);
+  const competition = provider === "openstreetmap" && counts.matchingSpecialty === 0 ? Math.min(72, competitionBase) : competitionBase;
   const access = clamp(42 + Math.min(transit, 14) * 3 + Math.min(parking, 8) * 2 + Math.min(pharmacy, 10), 0, 92);
   const observedScore = Math.round((competition + access) / 2);
   const confidence = clamp((provider === "kakao" ? 66 : 42) + Math.min(places.length, 30) * .7, 35, provider === "kakao" ? 88 : 68);
   const grade = observedScore >= 85 ? "A" : observedScore >= 75 ? "B+" : observedScore >= 65 ? "B" : "C";
   const metrics = [
     { label: "잠재환자 수요", value: null, note: "인구 데이터 연동 필요", color: COLORS[0] },
-    { label: "경쟁환경", value: competition, note: `동일 진료과 표식 ${matching.length}곳`, color: COLORS[1] },
+    { label: "경쟁환경", value: competition, note: `동일 진료과 검색 ${counts.matchingSpecialty}곳`, color: COLORS[1] },
     { label: "소비력", value: null, note: "소비 데이터 연동 필요", color: COLORS[2] },
-    { label: "접근성", value: access, note: `교통 ${transit} · 주차 ${parking}`, color: COLORS[3] },
+    { label: "접근성", value: access, note: `지하철역 ${transit} · 주차 ${parking}`, color: COLORS[3] },
     { label: "비용효율", value: null, note: "임대료 데이터 연동 필요", color: COLORS[4] },
     { label: "성장성", value: null, note: "개발계획 데이터 연동 필요", color: COLORS[5] }
   ];
   const strengths = [
-    transit >= 5 ? `반경 내 대중교통 지점 ${transit}곳` : "주변 의료기관을 실제 지도에서 확인 가능",
+    transit >= 2 ? `반경 내 지하철역 검색 ${transit}곳` : "주변 의료기관을 실제 지도에서 확인 가능",
     pharmacy >= 3 ? `주변 약국 ${pharmacy}곳으로 의료상권 형성` : `가까운 약국 ${pharmacy}곳 확인`,
     competition >= 75 ? `선택 진료과 표식 경쟁이 비교적 낮음` : "경쟁병원의 위치와 거리를 직접 확인 가능"
   ];
   const risks = [
-    matching.length >= 8 ? `선택 진료과 표식 ${matching.length}곳으로 경쟁 주의` : "진료과 표식 누락 가능성 검토 필요",
+    counts.matchingSpecialty >= 8 ? `선택 진료과 검색 ${counts.matchingSpecialty}곳으로 경쟁 주의` : "진료과 분류 누락 가능성 검토 필요",
     "유동인구·소득·임대료는 아직 점수에 포함되지 않음",
     provider === "openstreetmap" ? "OpenStreetMap 등록 범위에 따라 누락 가능" : "공개 장소 데이터 기준으로 실제 운영정보 확인 필요"
   ];
   return {
     mode: "live", provider, analyzedAt: new Date().toISOString(),
     location: { displayName, latitude, longitude }, specialty, radiusMeters,
-    places, counts: { medical: medical.length, matchingSpecialty: matching.length, pharmacy, transit, parking },
+    places, counts, displayedCounts,
     metrics, observedScore, grade, confidence,
-    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 실제 등록된 의료기관 ${medical.length}곳과 ${specialty} 관련 표식 ${matching.length}곳을 확인했습니다. 현재 점수는 경쟁환경과 교통·주차 접근성만 반영한 베타 관측점수이며, 유동인구·소비력·임대료 데이터가 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
+    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}곳과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}곳을 확인했습니다. 지도에는 제공기관이 노출을 허용한 가까운 장소만 표시됩니다. 현재 점수는 경쟁환경과 지하철·주차 접근성만 반영한 베타 관측점수이며, 유동인구·소비력·임대료 데이터가 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
     strengths, risks,
     limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", "인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다."]
   };
@@ -239,7 +281,7 @@ export async function POST(request: NextRequest) {
     if (Number.isFinite(body.latitude) && Number.isFinite(body.longitude)) {
       latitude = Number(body.latitude);
       longitude = Number(body.longitude);
-      displayName = typeof body.address === "string" && body.address ? body.address : await reverseOsm(latitude, longitude);
+      displayName = typeof body.address === "string" && body.address ? body.address : kakaoKey ? await reverseKakao(latitude, longitude, kakaoKey) : await reverseOsm(latitude, longitude);
     } else {
       const address = typeof body.address === "string" ? body.address.trim() : "";
       if (address.length < 2) return NextResponse.json({ error: "분석할 주소를 입력해주세요." }, { status: 400 });
@@ -248,17 +290,20 @@ export async function POST(request: NextRequest) {
     }
     let places: LivePlace[] = [];
     let needsClientFetch = false;
+    let providerTotals: LocationAnalysis["counts"] | undefined;
     if (Array.isArray(body.osmElements) && body.osmElements.length <= 1500) {
       places = normalizeOsmElements(body.osmElements, latitude, longitude);
     } else if (kakaoKey) {
-      places = await fetchKakaoPlaces(kakaoKey, latitude, longitude, radiusMeters);
+      const kakao = await fetchKakaoPlaces(kakaoKey, latitude, longitude, radiusMeters, specialty);
+      places = kakao.places;
+      providerTotals = kakao.totals;
     } else if (process.env.VERCEL) {
       needsClientFetch = true;
     } else {
       try { places = await fetchOsmPlaces(latitude, longitude, radiusMeters); }
       catch { needsClientFetch = true; }
     }
-    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places);
+    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals);
     return NextResponse.json({ ...analysis, needsClientFetch, osmQuery: needsClientFetch ? buildOsmQuery(latitude, longitude, radiusMeters) : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";

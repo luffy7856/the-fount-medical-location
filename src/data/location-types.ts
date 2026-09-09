@@ -40,6 +40,13 @@ export type LocationAnalysis = {
     transit: number;
     parking: number;
   };
+  displayedCounts?: {
+    medical: number;
+    matchingSpecialty: number;
+    pharmacy: number;
+    transit: number;
+    parking: number;
+  };
   metrics: LiveMetric[];
   observedScore: number;
   grade: string;

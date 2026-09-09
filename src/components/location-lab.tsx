@@ -34,7 +34,7 @@ const EMPTY_ANALYSIS: LocationAnalysis = {
 const LIVE_LAYERS = [
   { id: "hospital", label: "의료기관", color: "#e55e48" },
   { id: "pharmacy", label: "약국", color: "#3182ce" },
-  { id: "transit", label: "대중교통", color: "#0f937d" },
+  { id: "transit", label: "지하철역", color: "#0f937d" },
   { id: "parking", label: "주차시설", color: "#805ad5" }
 ];
 
@@ -61,10 +61,10 @@ function MetricBars({ metrics }: { metrics: LiveMetric[] }) {
 
 function OverviewPanel({ analysis, onTab }: { analysis: LocationAnalysis; onTab: (tab: PanelTab) => void }) {
   const stats = [
-    ["전체 의료기관", `${analysis.counts.medical}곳`, "실시간 조회"],
-    [`${analysis.specialty} 표식`, `${analysis.counts.matchingSpecialty}곳`, "명칭·분류 기준"],
-    ["약국", `${analysis.counts.pharmacy}곳`, "반경 내"],
-    ["대중교통", `${analysis.counts.transit}곳`, "역·정류장"],
+    ["전체 의료기관", `${analysis.counts.medical}곳`, analysis.displayedCounts && analysis.counts.medical > analysis.displayedCounts.medical ? `가까운 ${analysis.displayedCounts.medical}곳 지도 표시` : "지도 전체 표시"],
+    [`${analysis.specialty} 검색`, `${analysis.counts.matchingSpecialty}곳`, "카카오 분류·검색 기준"],
+    ["약국", `${analysis.counts.pharmacy}곳`, analysis.displayedCounts && analysis.counts.pharmacy > analysis.displayedCounts.pharmacy ? `가까운 ${analysis.displayedCounts.pharmacy}곳 지도 표시` : "반경 내"],
+    ["지하철역", `${analysis.counts.transit}곳`, "카카오 역 카테고리"],
     ["주차시설", `${analysis.counts.parking}곳`, "공개 등록 기준"],
     ["분석 반경", `${analysis.radiusMeters.toLocaleString()}m`, analysis.provider === "kakao" ? "Kakao Local" : "OpenStreetMap"]
   ];
@@ -84,7 +84,7 @@ function OverviewPanel({ analysis, onTab }: { analysis: LocationAnalysis; onTab:
 function CompetitorPanel({ analysis, selected, onSelect }: { analysis: LocationAnalysis; selected: LivePlace | null; onSelect: (place: LivePlace) => void }) {
   const hospitals = analysis.places.filter(place => place.kind === "hospital");
   const current = selected?.kind === "hospital" ? selected : hospitals[0];
-  return <div className="panel-content"><div className="section-intro"><span>LIVE COMPETITOR MAP</span><h2>의료기관 {hospitals.length}곳</h2><p>{analysis.specialty} 표식 {analysis.counts.matchingSpecialty}곳 · 반경 {analysis.radiusMeters.toLocaleString()}m</p></div>
+  return <div className="panel-content"><div className="section-intro"><span>LIVE COMPETITOR MAP</span><h2>의료기관 {analysis.counts.medical}곳</h2><p>지도 표시 {hospitals.length}곳 · {analysis.specialty} 검색 {analysis.counts.matchingSpecialty}곳 · 반경 {analysis.radiusMeters.toLocaleString()}m</p></div>
     {current && <><div className="hospital-detail"><div className="hospital-avatar"><Hospital /></div><div><span>선택한 실제 의료기관</span><h3>{current.name}</h3><p>{current.specialty || "의료기관"} · {current.distanceMeters.toLocaleString()}m</p></div><b>LIVE</b></div><div className="detail-grid"><span>거리 <b>{current.distanceMeters.toLocaleString()}m</b></span><span>출처 <b>{analysis.provider === "kakao" ? "Kakao" : "OSM"}</b></span><span className="wide">주소 <b>{current.address || "공개 주소 없음"}</b></span></div></>}
     <div className="list-heading"><h3>거리순 의료기관</h3><span>공개 등록 데이터를 그대로 표시합니다</span></div><div className="hospital-list">{hospitals.length ? hospitals.slice(0, 40).map(place => <button key={place.id} className={current?.id === place.id ? "active" : ""} onClick={() => onSelect(place)}><span className="dot age-fresh" /><div><b>{place.name}</b><small>{place.specialty || "의료기관"} · {place.distanceMeters.toLocaleString()}m</small></div><strong>{place.distanceMeters}m</strong><ChevronRight /></button>) : <div className="empty-state">반경 내 공개 등록 의료기관을 찾지 못했습니다.</div>}</div>
   </div>;
@@ -98,7 +98,7 @@ function ComparePanel({ saved }: { saved: LocationAnalysis[] }) {
   const candidates = saved.slice(-2);
   if (candidates.length < 2) return <div className="panel-content"><div className="section-intro"><span>LIVE COMPARE</span><h2>후보지를 한 곳 더 분석하세요</h2><p>서로 다른 두 주소를 분석하면 실제 조회 결과를 비교합니다.</p></div><div className="honest-placeholder"><GitCompareArrows /><h3>{candidates.length ? "첫 번째 후보지가 저장되었습니다" : "비교할 후보지가 없습니다"}</h3><p>주소를 변경해 분석하기를 누르면 최근 두 후보지의 의료기관·교통·주차 데이터를 비교할 수 있습니다.</p></div></div>;
   const [a, b] = candidates;
-  const rows: [string, number, number][] = [["전체 의료기관", a.counts.medical, b.counts.medical], [`${b.specialty} 표식`, a.counts.matchingSpecialty, b.counts.matchingSpecialty], ["대중교통", a.counts.transit, b.counts.transit], ["약국", a.counts.pharmacy, b.counts.pharmacy], ["주차시설", a.counts.parking, b.counts.parking], ["베타 관측점수", a.observedScore, b.observedScore]];
+  const rows: [string, number, number][] = [["전체 의료기관", a.counts.medical, b.counts.medical], [`${b.specialty} 검색`, a.counts.matchingSpecialty, b.counts.matchingSpecialty], ["지하철역", a.counts.transit, b.counts.transit], ["약국", a.counts.pharmacy, b.counts.pharmacy], ["주차시설", a.counts.parking, b.counts.parking], ["베타 관측점수", a.observedScore, b.observedScore]];
   return <div className="panel-content"><div className="section-intro"><span>LIVE CANDIDATE COMPARE</span><h2>실제 후보지 비교</h2><p>동일한 공개 데이터 기준으로 비교합니다.</p></div><div className="compare-head"><article><i>A</i><span>{a.specialty}</span><h3>{a.location.displayName.split(",")[0]}</h3><b>{a.observedScore}</b></article><GitCompareArrows /><article className={b.observedScore >= a.observedScore ? "recommended" : ""}><i>B</i><span>{b.specialty}</span><h3>{b.location.displayName.split(",")[0]}</h3><b>{b.observedScore}</b></article></div><div className="compare-table">{rows.map(([label, av, bv]) => <div key={label}><b>{av}</b><span>{label}</span><b>{bv}</b></div>)}</div><div className="ai-compare"><Sparkles /><div><span>비교 참고</span><p>현재 비교는 공개 지도에서 확인되는 경쟁시설과 접근성만 반영합니다. 매출·임대료·인구 데이터를 연결한 뒤 최종 후보지를 결정하세요.</p></div></div></div>;
 }
 
@@ -164,10 +164,10 @@ export default function LocationLab() {
         <LiveMap analysis={analysis} activeKinds={activeKinds} selected={selectedPlace} onPlace={place => { setSelectedPlace(place); if (place.kind === "hospital") setTab("competitors"); }} onSelectCoordinate={(latitude, longitude) => void runAnalysis({ latitude, longitude })} />
         <div className="map-summary"><span>{analysis.specialty} · 반경 {radiusLabel}</span><b>의료기관 {analysis.counts.medical}곳</b><em>{analysis.provider === "kakao" ? "KAKAO LIVE" : "OSM LIVE"}</em></div>
         <div className="layer-control"><button className="layer-trigger" onClick={() => setLayerOpen(!layerOpen)}><Layers3 /> 실제 지도 레이어 <b>{activeKinds.size}</b><ChevronDown /></button>{layerOpen && <div className="layer-menu"><div><b>표시할 실제 데이터</b><button onClick={() => setLayerOpen(false)}><X /></button></div>{LIVE_LAYERS.map(layer => <label key={layer.id}><input type="checkbox" checked={activeKinds.has(layer.id)} onChange={() => toggleLayer(layer.id)} /><i style={{ background: layer.color }} /><span>{layer.label}</span></label>)}<small>지도 클릭 시 해당 좌표를 새로 분석합니다.</small></div>}</div>
-        <div className="live-map-note"><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 교통</span><span><i className="parking-dot" /> 주차</span></div>
+        <div className="live-map-note"><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span></div>
       </section>
       <aside className="analysis-panel"><div className="sheet-handle" /><div className="panel-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>지역분석</button><button className={tab === "competitors" ? "active" : ""} onClick={() => setTab("competitors")}>경쟁병원</button><button className={tab === "forecast" ? "active" : ""} onClick={() => setTab("forecast")}>3년전망</button><button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>후보지 비교</button></div>{tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} />}{tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}{tab === "forecast" && <ForecastPanel />}{tab === "compare" && <ComparePanel saved={saved} />}</aside>
     </div>
-    {loading && <div className="loading-mask"><div><Activity className="spin" /><b>{specialty} 주변 실제 데이터를 조회하고 있습니다</b><span>주소 좌표 · 의료기관 · 약국 · 교통 · 주차</span></div></div>}
+    {loading && <div className="loading-mask"><div><Activity className="spin" /><b>{specialty} 주변 실제 데이터를 조회하고 있습니다</b><span>주소 좌표 · 의료기관 · 약국 · 지하철역 · 주차</span></div></div>}
   </main>;
 }

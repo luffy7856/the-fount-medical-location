@@ -35,16 +35,16 @@ export default function LiveMap({ analysis, activeKinds, selected, onPlace, onSe
     <MapUpdater latitude={latitude} longitude={longitude} radius={analysis.radiusMeters} />
     <MapClick onSelect={onSelectCoordinate} />
     <Circle center={[latitude, longitude]} radius={analysis.radiusMeters} pathOptions={{ color: "#0f937d", fillColor: "#38b2ac", fillOpacity: .08, weight: 2, dashArray: "6 7" }} />
-    <CircleMarker center={[latitude, longitude]} radius={9} pathOptions={{ color: "#fff", fillColor: "#14263d", fillOpacity: 1, weight: 4 }}>
+    <CircleMarker center={[latitude, longitude]} radius={9} bubblingMouseEvents={false} pathOptions={{ color: "#fff", fillColor: "#14263d", fillOpacity: 1, weight: 4 }}>
       <Popup><b>분석 중심지</b><br />{analysis.location.displayName}</Popup>
     </CircleMarker>
     {analysis.places.filter(place => activeKinds.has(place.kind)).map(place => <CircleMarker
       key={place.id}
       center={[place.latitude, place.longitude]}
       radius={selected?.id === place.id ? 10 : place.kind === "hospital" ? 7 : 5}
+      bubblingMouseEvents={false}
       pathOptions={{ color: "#fff", fillColor: COLORS[place.kind], fillOpacity: .95, weight: selected?.id === place.id ? 4 : 2 }}
       eventHandlers={{ click: () => onPlace(place) }}
     ><Popup><strong>{place.name}</strong><br />{place.specialty || place.kind}<br />{place.distanceMeters.toLocaleString()}m</Popup></CircleMarker>)}
   </MapContainer>;
 }
-
