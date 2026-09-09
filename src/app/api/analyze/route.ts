@@ -103,7 +103,7 @@ async function reverseOsm(latitude: number, longitude: number) {
   return data?.display_name || `위도 ${latitude.toFixed(5)}, 경도 ${longitude.toFixed(5)}`;
 }
 
-type KakaoSearchResult = { places: LivePlace[]; totalCount: number };
+type KakaoSearchResult = { places: LivePlace[]; isTruncated: boolean };
 
 async function kakaoSearch(key: string, code: string, kind: LivePlaceKind, latitude: number, longitude: number, radius: number, query?: string): Promise<KakaoSearchResult> {
   const endpoint = query ? "keyword" : "category";
@@ -140,7 +140,8 @@ async function kakaoSearch(key: string, code: string, kind: LivePlaceKind, latit
     address: item.road_address_name || item.address_name,
     url: item.place_url
   }));
-  return { places, totalCount: Number(first.meta?.total_count || places.length) };
+  const last = remaining.at(-1) || first;
+  return { places, isTruncated: last.meta?.is_end === false };
 }
 
 async function fetchKakaoPlaces(key: string, latitude: number, longitude: number, radius: number, specialty: Specialty) {
@@ -155,11 +156,18 @@ async function fetchKakaoPlaces(key: string, latitude: number, longitude: number
   return {
     places,
     totals: {
-      medical: hospital.totalCount,
-      matchingSpecialty: specialty === "기타" ? hospital.totalCount : specialtyHospital.totalCount,
-      pharmacy: pharmacy.totalCount,
-      transit: transit.totalCount,
-      parking: parking.totalCount
+      medical: hospital.places.length,
+      matchingSpecialty: specialty === "기타" ? hospital.places.length : specialtyHospital.places.length,
+      pharmacy: pharmacy.places.length,
+      transit: transit.places.length,
+      parking: parking.places.length
+    },
+    limits: {
+      medical: hospital.isTruncated,
+      matchingSpecialty: specialty === "기타" ? hospital.isTruncated : specialtyHospital.isTruncated,
+      pharmacy: pharmacy.isTruncated,
+      transit: transit.isTruncated,
+      parking: parking.isTruncated
     }
   };
 }
@@ -221,7 +229,7 @@ async function fetchOsmPlaces(latitude: number, longitude: number, radius: numbe
   return normalizeOsmElements(data.elements || [], latitude, longitude);
 }
 
-function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"]): LocationAnalysis {
+function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"]): LocationAnalysis {
   const medical = places.filter(place => place.kind === "hospital");
   const matching = medical.filter(place => matchesSpecialty(place.name, place.specialty, specialty));
   const displayedCounts = {
@@ -261,9 +269,9 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
   return {
     mode: "live", provider, analyzedAt: new Date().toISOString(),
     location: { displayName, latitude, longitude }, specialty, radiusMeters,
-    places, counts, displayedCounts,
+    places, counts, displayedCounts, countLimits,
     metrics, observedScore, grade, confidence,
-    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}곳과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}곳을 확인했습니다. 지도에는 제공기관이 노출을 허용한 가까운 장소만 표시됩니다. 현재 점수는 경쟁환경과 지하철·주차 접근성만 반영한 베타 관측점수이며, 유동인구·소비력·임대료 데이터가 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
+    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}${countLimits?.medical ? "곳 이상" : "곳"}과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}${countLimits?.matchingSpecialty ? "곳 이상" : "곳"}을 확인했습니다. 카카오 장소검색 상한에 도달한 항목은 최소 확인 개수로 표시합니다. 현재 점수는 경쟁환경과 지하철·주차 접근성만 반영한 베타 관측점수이며, 유동인구·소비력·임대료 데이터가 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
     strengths, risks,
     limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", "인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다."]
   };
@@ -291,19 +299,21 @@ export async function POST(request: NextRequest) {
     let places: LivePlace[] = [];
     let needsClientFetch = false;
     let providerTotals: LocationAnalysis["counts"] | undefined;
+    let countLimits: LocationAnalysis["countLimits"] | undefined;
     if (Array.isArray(body.osmElements) && body.osmElements.length <= 1500) {
       places = normalizeOsmElements(body.osmElements, latitude, longitude);
     } else if (kakaoKey) {
       const kakao = await fetchKakaoPlaces(kakaoKey, latitude, longitude, radiusMeters, specialty);
       places = kakao.places;
       providerTotals = kakao.totals;
+      countLimits = kakao.limits;
     } else if (process.env.VERCEL) {
       needsClientFetch = true;
     } else {
       try { places = await fetchOsmPlaces(latitude, longitude, radiusMeters); }
       catch { needsClientFetch = true; }
     }
-    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals);
+    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits);
     return NextResponse.json({ ...analysis, needsClientFetch, osmQuery: needsClientFetch ? buildOsmQuery(latitude, longitude, radiusMeters) : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";

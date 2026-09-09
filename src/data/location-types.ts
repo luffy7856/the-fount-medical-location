@@ -47,6 +47,13 @@ export type LocationAnalysis = {
     transit: number;
     parking: number;
   };
+  countLimits?: {
+    medical: boolean;
+    matchingSpecialty: boolean;
+    pharmacy: boolean;
+    transit: boolean;
+    parking: boolean;
+  };
   metrics: LiveMetric[];
   observedScore: number;
   grade: string;
