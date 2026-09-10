@@ -19,9 +19,10 @@ function MapClick({ onSelect }: { onSelect: (latitude: number, longitude: number
   return null;
 }
 
-export default function LiveMap({ analysis, activeKinds, selected, onPlace, onSelectCoordinate }: {
+export default function LiveMap({ analysis, activeKinds, populationActive, selected, onPlace, onSelectCoordinate }: {
   analysis: LocationAnalysis;
   activeKinds: Set<string>;
+  populationActive: boolean;
   selected: LivePlace | null;
   onPlace: (place: LivePlace) => void;
   onSelectCoordinate: (latitude: number, longitude: number) => void;
@@ -34,6 +35,12 @@ export default function LiveMap({ analysis, activeKinds, selected, onPlace, onSe
     />
     <MapUpdater latitude={latitude} longitude={longitude} radius={analysis.radiusMeters} />
     <MapClick onSelect={onSelectCoordinate} />
+    {populationActive && analysis.livingPopulation?.status === "available" && <Circle
+      center={[latitude, longitude]}
+      radius={Math.max(260, Math.min(analysis.radiusMeters * .72, 760))}
+      interactive
+      pathOptions={{ color: "#e56b2f", fillColor: analysis.livingPopulation.total && analysis.livingPopulation.total >= 30000 ? "#dc3f2f" : analysis.livingPopulation.total && analysis.livingPopulation.total >= 15000 ? "#f28a32" : "#f3c94c", fillOpacity: .28, weight: 1 }}
+    ><Popup><strong>서울 생활인구</strong><br />{analysis.livingPopulation.referenceDate} {String(analysis.livingPopulation.hour).padStart(2, "0")}시<br />{analysis.livingPopulation.total?.toLocaleString()}명<br /><small>행정동 집계 · 원은 강도 표현용</small></Popup></Circle>}
     <Circle center={[latitude, longitude]} radius={analysis.radiusMeters} pathOptions={{ color: "#0f937d", fillColor: "#38b2ac", fillOpacity: .08, weight: 2, dashArray: "6 7" }} />
     <CircleMarker center={[latitude, longitude]} radius={9} bubblingMouseEvents={false} pathOptions={{ color: "#fff", fillColor: "#14263d", fillOpacity: 1, weight: 4 }}>
       <Popup><b>분석 중심지</b><br />{analysis.location.displayName}</Popup>

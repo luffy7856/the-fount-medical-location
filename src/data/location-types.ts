@@ -21,6 +21,23 @@ export type LiveMetric = {
   color: string;
 };
 
+export type LivingPopulationStatus = "available" | "not_configured" | "unsupported" | "no_data" | "error";
+
+export type LivingPopulation = {
+  status: LivingPopulationStatus;
+  source: "서울특별시 서울 생활인구";
+  dataset: "Spop250mLocalResdDong";
+  spatialUnit: "행정동";
+  supportedRegion: "서울특별시";
+  referenceDate?: string;
+  hour?: number;
+  administrativeCode?: string;
+  total?: number;
+  male?: number;
+  female?: number;
+  message: string;
+};
+
 export type LocationAnalysis = {
   mode: "live";
   provider: "kakao" | "openstreetmap";
@@ -73,6 +90,7 @@ export type LocationAnalysis = {
     businesses: number;
     averageAge: number | null;
   };
+  livingPopulation?: LivingPopulation;
   needsClientFetch?: boolean;
   osmQuery?: string;
 };

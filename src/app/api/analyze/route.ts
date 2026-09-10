@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { LocationAnalysis, LivePlace, LivePlaceKind } from "@/data/location-types";
+import type { LivingPopulation, LocationAnalysis, LivePlace, LivePlaceKind } from "@/data/location-types";
 import { specialties, type Specialty } from "@/data/specialties";
+import { fetchSeoulLivingPopulation } from "@/providers/seoul-living-population";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,6 +71,20 @@ async function reverseKakao(latitude: number, longitude: number, key: string) {
   const data = await response.json();
   const item = data.documents?.[0];
   return item?.road_address?.address_name || item?.address?.address_name || reverseOsm(latitude, longitude);
+}
+
+async function administrativeDongCodeKakao(latitude: number, longitude: number, key: string) {
+  try {
+    const url = new URL("https://dapi.kakao.com/v2/local/geo/coord2regioncode.json");
+    url.searchParams.set("x", String(longitude));
+    url.searchParams.set("y", String(latitude));
+    const response = await fetch(url, { headers: { Authorization: `KakaoAK ${key}` }, cache: "no-store", signal: AbortSignal.timeout(7000) });
+    const data = response.ok ? await response.json() : null;
+    const administrativeDong = data?.documents?.find((item: { region_type?: string }) => item.region_type === "H");
+    return typeof administrativeDong?.code === "string" ? administrativeDong.code.slice(0, 8) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function geocodeOsm(address: string) {
@@ -322,7 +337,7 @@ async function fetchOsmPlaces(latitude: number, longitude: number, radius: numbe
   return normalizeOsmElements(data.elements || [], latitude, longitude);
 }
 
-function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"], demographics?: Demographics): LocationAnalysis {
+function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"], demographics?: Demographics, livingPopulation?: LivingPopulation): LocationAnalysis {
   const medical = places.filter(place => place.kind === "hospital");
   const matching = medical.filter(place => matchesSpecialty(place.name, place.specialty, specialty));
   const displayedCounts = {
@@ -338,12 +353,14 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
   const competitionBase = clamp(94 - (counts.matchingSpecialty || counts.medical * .35) * densityFactor);
   const competition = provider === "openstreetmap" && counts.matchingSpecialty === 0 ? Math.min(72, competitionBase) : competitionBase;
   const access = clamp(42 + Math.min(transit, 14) * 3 + Math.min(parking, 8) * 2 + Math.min(pharmacy, 10), 0, 92);
-  const demand = demographics ? clamp(38 + (demographics.residentPopulation + demographics.workerPopulation * .55) / 1600) : null;
+  const demographicDemand = demographics ? clamp(38 + (demographics.residentPopulation + demographics.workerPopulation * .55) / 1600) : null;
+  const livingDemand = livingPopulation?.status === "available" && livingPopulation.total !== undefined ? clamp(35 + livingPopulation.total / 900) : null;
+  const demand = demographicDemand !== null && livingDemand !== null ? clamp(demographicDemand * .55 + livingDemand * .45) : demographicDemand ?? livingDemand;
   const observedScore = Math.round(demand === null ? (competition + access) / 2 : (competition + access + demand) / 3);
-  const confidence = clamp((provider === "kakao" ? 66 : 42) + Math.min(places.length, 30) * .7 + (demographics ? 8 : 0), 35, provider === "kakao" ? 94 : 76);
+  const confidence = clamp((provider === "kakao" ? 66 : 42) + Math.min(places.length, 30) * .7 + (demographics ? 8 : 0) + (livingPopulation?.status === "available" ? 6 : 0), 35, provider === "kakao" ? 96 : 82);
   const grade = observedScore >= 85 ? "A" : observedScore >= 75 ? "B+" : observedScore >= 65 ? "B" : "C";
   const metrics = [
-    { label: "잠재환자 수요", value: demand, note: demographics ? `${demographics.areaName} 인구·종사자` : "인구 데이터 연동 필요", color: COLORS[0] },
+    { label: "잠재환자 수요", value: demand, note: livingPopulation?.status === "available" ? `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 생활인구 반영` : demographics ? `${demographics.areaName} 인구·종사자` : "인구 데이터 연동 필요", color: COLORS[0] },
     { label: "경쟁환경", value: competition, note: `동일 진료과 검색 ${counts.matchingSpecialty}곳`, color: COLORS[1] },
     { label: "소비력", value: null, note: "소비 데이터 연동 필요", color: COLORS[2] },
     { label: "접근성", value: access, note: `지하철역 ${transit} · 주차 ${parking}`, color: COLORS[3] },
@@ -351,14 +368,14 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     { label: "성장성", value: null, note: "개발계획 데이터 연동 필요", color: COLORS[5] }
   ];
   const strengths = [
-    demographics ? `${demographics.areaName} 거주인구 ${demographics.residentPopulation.toLocaleString()}명 · 종사자 ${demographics.workerPopulation.toLocaleString()}명` : "주변 의료기관을 실제 지도에서 확인 가능",
+    livingPopulation?.status === "available" ? `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 행정동 생활인구 ${livingPopulation.total?.toLocaleString()}명` : demographics ? `${demographics.areaName} 거주인구 ${demographics.residentPopulation.toLocaleString()}명 · 종사자 ${demographics.workerPopulation.toLocaleString()}명` : "주변 의료기관을 실제 지도에서 확인 가능",
     transit >= 2 ? `반경 내 지하철역 검색 ${transit}곳` : "주변 의료기관을 실제 지도에서 확인 가능",
     pharmacy >= 3 ? `주변 약국 ${pharmacy}곳으로 의료상권 형성` : `가까운 약국 ${pharmacy}곳 확인`,
     competition >= 75 ? `선택 진료과 표식 경쟁이 비교적 낮음` : "경쟁병원의 위치와 거리를 직접 확인 가능"
   ];
   const risks = [
     counts.matchingSpecialty >= 8 ? `선택 진료과 검색 ${counts.matchingSpecialty}곳으로 경쟁 주의` : "진료과 분류 누락 가능성 검토 필요",
-    demographics ? "SGIS 인구는 행정동 기준으로 반경 데이터와 범위가 다름" : "유동인구·소득·임대료는 아직 점수에 포함되지 않음",
+    livingPopulation?.status === "available" ? "생활인구는 행정동 집계값으로 선택 반경과 범위가 다름" : demographics ? "SGIS 인구는 행정동 기준으로 반경 데이터와 범위가 다름" : "유동인구·소득·임대료는 아직 점수에 포함되지 않음",
     provider === "openstreetmap" ? "OpenStreetMap 등록 범위에 따라 누락 가능" : "공개 장소 데이터 기준으로 실제 운영정보 확인 필요"
   ];
   return {
@@ -366,10 +383,11 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     location: { displayName, latitude, longitude }, specialty, radiusMeters,
     places, counts, displayedCounts, countLimits,
     metrics, observedScore, grade, confidence,
-    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}${countLimits?.medical ? "곳 이상" : "곳"}과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}${countLimits?.matchingSpecialty ? "곳 이상" : "곳"}을 확인했습니다.${demographics ? ` SGIS ${demographics.year}년 기준 ${demographics.areaName}의 거주인구는 ${demographics.residentPopulation.toLocaleString()}명, 종사자는 ${demographics.workerPopulation.toLocaleString()}명입니다.` : ""} 현재 점수는 연결된 공개 데이터만 반영한 베타 관측점수이며, 유동인구·소비력·임대료 데이터가 모두 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
+    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}${countLimits?.medical ? "곳 이상" : "곳"}과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}${countLimits?.matchingSpecialty ? "곳 이상" : "곳"}을 확인했습니다.${demographics ? ` SGIS ${demographics.year}년 기준 ${demographics.areaName}의 거주인구는 ${demographics.residentPopulation.toLocaleString()}명, 종사자는 ${demographics.workerPopulation.toLocaleString()}명입니다.` : ""}${livingPopulation?.status === "available" ? ` 서울시 ${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 행정동 생활인구 ${livingPopulation.total?.toLocaleString()}명을 수요지표에 함께 반영했습니다.` : ""} 현재 점수는 연결된 공개 데이터만 반영한 베타 관측점수이며, 소비력·임대료 데이터가 모두 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
     strengths, risks,
-    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다."],
-    demographics
+    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "거주인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다.", livingPopulation?.status === "available" ? "서울 생활인구는 250m 원자료를 행정동별로 집계한 값이며 지도 원은 해당 행정동의 정확한 경계가 아닙니다." : livingPopulation?.message || "서울 이외 지역의 시간대별 생활인구는 현재 지원하지 않습니다."],
+    demographics,
+    livingPopulation
   };
 }
 
@@ -409,8 +427,16 @@ export async function POST(request: NextRequest) {
       try { places = await fetchOsmPlaces(latitude, longitude, radiusMeters); }
       catch { needsClientFetch = true; }
     }
-    const demographics = await fetchSgisDemographics(displayName);
-    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, demographics);
+    const [demographics, kakaoAdministrativeCode] = await Promise.all([
+      fetchSgisDemographics(displayName),
+      kakaoKey ? administrativeDongCodeKakao(latitude, longitude, kakaoKey) : Promise.resolve(undefined)
+    ]);
+    const livingPopulation = await fetchSeoulLivingPopulation({
+      administrativeCode: kakaoAdministrativeCode || demographics?.administrativeCode,
+      date: typeof body.populationDate === "string" ? body.populationDate : undefined,
+      hour: Number(body.populationHour)
+    });
+    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, demographics, livingPopulation);
     return NextResponse.json({ ...analysis, needsClientFetch, osmQuery: needsClientFetch ? buildOsmQuery(latitude, longitude, radiusMeters) : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";

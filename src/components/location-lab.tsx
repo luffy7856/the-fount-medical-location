@@ -4,11 +4,11 @@ import dynamic from "next/dynamic";
 import {
   Activity, AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight,
   Building2, Calculator, Coins, Download, GitCompareArrows, Hospital, Layers3,
-  LocateFixed, MapPin, Menu, Printer, Search, ShieldCheck, Sparkles, TimerReset, X
+  LocateFixed, MapPin, Menu, Pause, Play, Printer, Search, ShieldCheck, Sparkles, TimerReset, Users, X
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { specialties, type Specialty } from "@/data/specialties";
-import type { LocationAnalysis, LiveMetric, LivePlace } from "@/data/location-types";
+import type { LivingPopulation, LocationAnalysis, LiveMetric, LivePlace } from "@/data/location-types";
 
 const LiveMap = dynamic(() => import("./live-map"), { ssr: false, loading: () => <div className="map-loading"><Activity className="spin" /> 지도를 불러오는 중</div> });
 
@@ -67,6 +67,13 @@ const LIVE_LAYERS = [
   { id: "parking", label: "주차시설", color: "#805ad5" }
 ];
 
+function defaultPopulationDate() {
+  const now = new Date();
+  const seoul = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+  seoul.setDate(seoul.getDate() - 4);
+  return `${seoul.getFullYear()}-${String(seoul.getMonth() + 1).padStart(2, "0")}-${String(seoul.getDate()).padStart(2, "0")}`;
+}
+
 async function fetchOsmInBrowser(query: string) {
   const endpoints = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.osm.jp/api/interpreter"];
   for (const endpoint of endpoints) {
@@ -90,6 +97,20 @@ function MetricBars({ metrics }: { metrics: LiveMetric[] }) {
 
 function formatCount(analysis: LocationAnalysis, key: keyof LocationAnalysis["counts"]) {
   return `${analysis.counts[key]}곳${analysis.countLimits?.[key] ? " 이상" : ""}`;
+}
+
+function withLivingPopulation(analysis: LocationAnalysis, livingPopulation: LivingPopulation): LocationAnalysis {
+  const metrics = analysis.metrics.map(metric => ({ ...metric }));
+  if (livingPopulation.status === "available" && livingPopulation.total !== undefined) {
+    const demographicDemand = analysis.demographics ? Math.max(0, Math.min(100, Math.round(38 + (analysis.demographics.residentPopulation + analysis.demographics.workerPopulation * .55) / 1600))) : null;
+    const livingDemand = Math.max(0, Math.min(100, Math.round(35 + livingPopulation.total / 900)));
+    const demand = demographicDemand === null ? livingDemand : Math.round(demographicDemand * .55 + livingDemand * .45);
+    metrics[0] = { ...metrics[0], value: demand, note: `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 생활인구 반영` };
+    const observed = metrics.filter(metric => metric.value !== null).map(metric => metric.value as number);
+    const observedScore = Math.round(observed.reduce((sum, value) => sum + value, 0) / observed.length);
+    return { ...analysis, livingPopulation, metrics, observedScore, grade: observedScore >= 85 ? "A" : observedScore >= 75 ? "B+" : observedScore >= 65 ? "B" : "C" };
+  }
+  return { ...analysis, livingPopulation };
 }
 
 function calculateOpeningPlan(analysis: LocationAnalysis, inputs: OpeningInputs) {
@@ -146,19 +167,20 @@ function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs }: { an
     ["지하철역", formatCount(analysis, "transit"), "카카오 역 카테고리"],
     ["주차시설", formatCount(analysis, "parking"), analysis.countLimits?.parking ? "카카오 조회 상한 도달" : "공개 등록 기준"],
     ["분석 반경", `${analysis.radiusMeters.toLocaleString()}m`, analysis.provider === "kakao" ? "Kakao Local" : "OpenStreetMap"],
-    ...(analysis.demographics ? [["거주인구", `${analysis.demographics.residentPopulation.toLocaleString()}명`, `${analysis.demographics.areaName} · SGIS ${analysis.demographics.year}`], ["종사자", `${analysis.demographics.workerPopulation.toLocaleString()}명`, `${analysis.demographics.businesses.toLocaleString()}개 사업체`]] : [])
+    ...(analysis.demographics ? [["거주인구", `${analysis.demographics.residentPopulation.toLocaleString()}명`, `${analysis.demographics.areaName} · SGIS ${analysis.demographics.year}`], ["종사자", `${analysis.demographics.workerPopulation.toLocaleString()}명`, `${analysis.demographics.businesses.toLocaleString()}개 사업체`]] : []),
+    ...(analysis.livingPopulation?.status === "available" ? [["생활인구", `${analysis.livingPopulation.total?.toLocaleString()}명`, `${analysis.livingPopulation.referenceDate} ${String(analysis.livingPopulation.hour).padStart(2, "0")}시 · 서울시`]] : [])
   ];
   return <div className="panel-content">
     <div className="location-heading"><div><span><MapPin /> 실제 분석 지역</span><h2>{analysis.location.displayName.split(",")[0]}</h2><p>{analysis.specialty} · 반경 {analysis.radiusMeters.toLocaleString()}m</p></div></div>
     <div className="score-hero live-score"><div className="gauge" style={{ background: `conic-gradient(#35d0b0 0 ${analysis.observedScore}%,rgba(255,255,255,.15) ${analysis.observedScore}%)` }}><div><b>{analysis.observedScore || "—"}</b><small>/100</small></div></div><div><span>LIVE OBSERVED SCORE</span><h3>{analysis.grade} 등급</h3><p>현재 연결된 실제 데이터 범위의 <b>베타 관측점수</b></p></div><div className="confidence"><ShieldCheck /><span>Data Coverage</span><b>{analysis.confidence}%</b></div></div>
-    <p className="score-disclaimer">유동인구·소득·임대료가 연결되기 전의 제한 점수입니다. 개원 타당성 최종점수로 사용하지 않습니다.</p>
+    <p className="score-disclaimer">{analysis.livingPopulation?.status === "available" ? "서울 생활인구를 포함한" : "시간대별 생활인구가 연결되기 전의"} 제한 점수입니다. 소비력·임대료는 아직 포함되지 않았으며 개원 타당성 최종점수로 사용하지 않습니다.</p>
     <div className="stats-grid">{stats.map(([label, value, meta]) => <article key={label}><span>{label}</span><b>{value}</b><small>{meta}</small></article>)}</div>
     <section className="panel-section"><div className="panel-title"><div><span>CONNECTED FACTORS</span><h3>실제 데이터 연결 현황</h3></div><button onClick={() => onTab("competitors")}>경쟁병원 <ChevronRight /></button></div><MetricBars metrics={analysis.metrics} /></section>
     <section className="panel-section ai-insight"><div className="ai-heading"><Sparkles /><div><span>LOCATION INTERPRETATION</span><h3>현재 데이터에 대한 해석</h3></div></div><p>{analysis.insight}</p><div className="pros-cons"><div><b><Check /> 확인된 신호</b>{analysis.strengths.map(item => <span key={item}>{item}</span>)}</div><div><b><AlertTriangle /> 확인 필요</b>{analysis.risks.map(item => <span key={item}>{item}</span>)}</div></div></section>
     <section className="panel-section data-coverage"><span>DATA ROADMAP</span><h3>정밀점수에 필요한 추가 데이터</h3><p>건강보험심사평가원·통계청·상권·임대료 API 인증키를 연결하면 잠재환자, 소비력, 비용효율, 성장성까지 실제 수치로 확장됩니다.</p></section>
     <FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={onOpeningInputs} compact />
     <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><button>정밀 개원분석 상담하기 <ArrowRight /></button></section>
-    <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span><span>실제 좌표</span><span>실제 등록 장소</span></div><small>분석 시각 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")} · 공개 데이터의 등록 상태에 따라 현장과 차이가 있을 수 있습니다.</small></section>
+    <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span>{analysis.demographics && <span>SGIS {analysis.demographics.year}</span>}{analysis.livingPopulation?.status === "available" && <span>서울 생활인구</span>}<span>실제 공개 데이터</span></div><small>분석 시각 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")}{analysis.livingPopulation?.status === "available" ? " · 생활인구 공간 단위: 행정동(250m 원자료 집계)" : ""} · 공개 데이터의 등록 상태에 따라 현장과 차이가 있을 수 있습니다.</small></section>
   </div>;
 }
 
@@ -197,6 +219,11 @@ export default function LocationLab() {
   const [error, setError] = useState("");
   const [openingInputs, setOpeningInputs] = useState<OpeningInputs>(DEFAULT_OPENING_INPUTS);
   const [activeKinds, setActiveKinds] = useState(() => new Set(LIVE_LAYERS.map(layer => layer.id)));
+  const [populationActive, setPopulationActive] = useState(true);
+  const [populationDate, setPopulationDate] = useState(defaultPopulationDate);
+  const [populationHour, setPopulationHour] = useState(12);
+  const [populationLoading, setPopulationLoading] = useState(false);
+  const [playing, setPlaying] = useState(false);
 
   const runAnalysis = useCallback(async (payload: { address?: string; latitude?: number; longitude?: number; specialty?: Specialty; radiusMeters?: number }) => {
     setLoading(true); setError(""); setSelectedPlace(null);
@@ -206,7 +233,9 @@ export default function LocationLab() {
         latitude: payload.latitude,
         longitude: payload.longitude,
         specialty: payload.specialty ?? specialty,
-        radiusMeters: payload.radiusMeters ?? radiusMeters
+        radiusMeters: payload.radiusMeters ?? radiusMeters,
+        populationDate,
+        populationHour
       };
       const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
       const data = await response.json();
@@ -222,7 +251,7 @@ export default function LocationLab() {
       setAnalysis(result); setSpecialty(result.specialty); setAddressInput(result.location.displayName.split(",")[0]); setSaved(current => [...current.filter(item => item.location.latitude !== result.location.latitude || item.location.longitude !== result.location.longitude), result].slice(-4)); setTab("overview"); setMobileFilter(false);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "분석 중 오류가 발생했습니다."); }
     finally { setLoading(false); }
-  }, [addressInput, specialty, radiusMeters]);
+  }, [specialty, radiusMeters, populationDate, populationHour]);
 
   useEffect(() => { void runAnalysis({ address: "서울특별시 강남구 테헤란로 123" }); }, []);
   const submit = (event: FormEvent) => { event.preventDefault(); void runAnalysis({ address: addressInput }); };
@@ -233,6 +262,29 @@ export default function LocationLab() {
     requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
   };
   const radiusLabel = useMemo(() => radiusMeters >= 1000 ? `${radiusMeters / 1000}km` : `${radiusMeters}m`, [radiusMeters]);
+
+  useEffect(() => {
+    const administrativeCode = analysis.livingPopulation?.administrativeCode || analysis.demographics?.administrativeCode;
+    if (!administrativeCode || analysis.analyzedAt === new Date(0).toISOString()) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setPopulationLoading(true);
+      try {
+        const response = await fetch("/api/living-population", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ administrativeCode, date: populationDate, hour: populationHour }), signal: controller.signal });
+        const result = await response.json() as LivingPopulation;
+        if (response.ok) setAnalysis(current => withLivingPopulation(current, result));
+      } catch (caught) {
+        if (!(caught instanceof DOMException && caught.name === "AbortError")) setError("생활인구 시간대 데이터를 갱신하지 못했습니다.");
+      } finally { if (!controller.signal.aborted) setPopulationLoading(false); }
+    }, 220);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [analysis.livingPopulation?.administrativeCode, analysis.demographics?.administrativeCode, populationDate, populationHour]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const timer = window.setInterval(() => setPopulationHour(current => current >= 23 ? 6 : current + 1), 1200);
+    return () => window.clearInterval(timer);
+  }, [playing]);
 
   useEffect(() => {
     type Ctx = { registerTool: (tool: { name: string; title: string; description: string; inputSchema: object; annotations: object; execute: (input: unknown) => Promise<object> }, options: { signal: AbortSignal }) => void | Promise<void> };
@@ -249,18 +301,26 @@ export default function LocationLab() {
       <label className="search-field"><Search /><input value={addressInput} onChange={event => setAddressInput(event.target.value)} placeholder="도로명 주소, 건물명, 역 이름 검색" /><button type="button" title="현재 위치" onClick={useCurrentLocation}><LocateFixed /></button></label>
       <label><span>진료과</span><select value={specialty} onChange={event => setSpecialty(event.target.value as Specialty)}>{specialties.map(item => <option key={item}>{item}</option>)}</select><ChevronDown /></label>
       <label><span>분석 반경</span><select value={radiusMeters} onChange={event => setRadiusMeters(Number(event.target.value))}>{[[300, "300m"], [500, "500m"], [1000, "1km"], [3000, "3km"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><ChevronDown /></label>
+      <label className="population-date"><span>생활인구 기준일</span><input type="date" value={populationDate} onChange={event => setPopulationDate(event.target.value)} /></label>
+      <label><span>시간대</span><select value={populationHour} onChange={event => setPopulationHour(Number(event.target.value))}>{Array.from({ length: 18 }, (_, index) => index + 6).map(hour => <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>)}</select><ChevronDown /></label>
       <button className="analyze-button" type="submit">{loading ? <Activity className="spin" /> : <BarChart3 />} 실제 데이터 분석</button>
     </form>
     {error && <div className="error-banner"><AlertTriangle />{error}<button onClick={() => setError("")}><X /></button></div>}
     <div className="workspace">
       <section className="map-area">
-        <LiveMap analysis={analysis} activeKinds={activeKinds} selected={selectedPlace} onPlace={place => { setSelectedPlace(place); if (place.kind === "hospital") setTab("competitors"); }} onSelectCoordinate={(latitude, longitude) => void runAnalysis({ latitude, longitude })} />
+        <LiveMap analysis={analysis} activeKinds={activeKinds} populationActive={populationActive} selected={selectedPlace} onPlace={place => { setSelectedPlace(place); if (place.kind === "hospital") setTab("competitors"); }} onSelectCoordinate={(latitude, longitude) => void runAnalysis({ latitude, longitude })} />
         <div className="map-summary"><span>{analysis.specialty} · 반경 {radiusLabel}</span><b>의료기관 {formatCount(analysis, "medical")}</b><em>{analysis.provider === "kakao" ? "KAKAO LIVE" : "OSM LIVE"}</em></div>
-        <div className="layer-control"><button className="layer-trigger" onClick={() => setLayerOpen(!layerOpen)}><Layers3 /> 실제 지도 레이어 <b>{activeKinds.size}</b><ChevronDown /></button>{layerOpen && <div className="layer-menu"><div><b>표시할 실제 데이터</b><button onClick={() => setLayerOpen(false)}><X /></button></div>{LIVE_LAYERS.map(layer => <label key={layer.id}><input type="checkbox" checked={activeKinds.has(layer.id)} onChange={() => toggleLayer(layer.id)} /><i style={{ background: layer.color }} /><span>{layer.label}</span></label>)}<small>지도 클릭 시 해당 좌표를 새로 분석합니다.</small></div>}</div>
-        <div className="live-map-note"><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span></div>
+        <div className="layer-control"><button className="layer-trigger" onClick={() => setLayerOpen(!layerOpen)}><Layers3 /> 실제 지도 레이어 <b>{activeKinds.size + (populationActive ? 1 : 0)}</b><ChevronDown /></button>{layerOpen && <div className="layer-menu"><div><b>표시할 실제 데이터</b><button onClick={() => setLayerOpen(false)}><X /></button></div><label><input type="checkbox" checked={populationActive} onChange={() => setPopulationActive(current => !current)} /><i className="population-dot" /><span>서울 생활인구</span><em>{analysis.livingPopulation?.status === "available" ? "실제" : analysis.livingPopulation?.status === "not_configured" ? "연결 필요" : analysis.livingPopulation?.status === "unsupported" ? "지역 미지원" : analysis.livingPopulation?.status === "no_data" ? "자료 없음" : "확인 중"}</em></label>{LIVE_LAYERS.map(layer => <label key={layer.id}><input type="checkbox" checked={activeKinds.has(layer.id)} onChange={() => toggleLayer(layer.id)} /><i style={{ background: layer.color }} /><span>{layer.label}</span></label>)}<small>{analysis.livingPopulation?.message || "지도 클릭 시 해당 좌표를 새로 분석합니다."}</small></div>}</div>
+        {analysis.livingPopulation && <div className={`timeline population-timeline ${analysis.livingPopulation.status}`}>
+          <button type="button" disabled={analysis.livingPopulation.status !== "available"} onClick={() => setPlaying(current => !current)} title="시간대 재생">{populationLoading ? <Activity className="spin" /> : playing ? <Pause /> : <Play />}</button>
+          <div className="time-copy"><b>{analysis.livingPopulation.status === "available" ? `${String(populationHour).padStart(2, "0")}:00` : "생활인구"}</b><span>{analysis.livingPopulation.status === "available" ? `${analysis.livingPopulation.total?.toLocaleString()}명 · 행정동 집계` : analysis.livingPopulation.message}</span></div>
+          {analysis.livingPopulation.status === "available" ? <><input aria-label="생활인구 시간대" type="range" min="6" max="23" value={populationHour} onChange={event => setPopulationHour(Number(event.target.value))} /><div className="time-ticks"><span>06시</span><span>12시</span><span>18시</span><span>23시</span></div></> : <div className="population-unavailable"><Users /><span>{analysis.livingPopulation.message}</span></div>}
+          <small className="population-provenance">서울특별시 서울 생활인구 · {analysis.livingPopulation.referenceDate || populationDate} · 250m 원자료의 행정동 집계 · 지도 원은 경계가 아닌 강도 표현</small>
+        </div>}
+        <div className={`live-map-note ${analysis.livingPopulation ? "with-timeline" : ""}`}><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span>{analysis.livingPopulation?.status === "available" && <span><i className="population-dot" /> 생활인구 낮음→높음</span>}</div>
       </section>
       <aside className="analysis-panel"><div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>발행 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")}</small></div><div className="sheet-handle" /><div className="panel-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>지역분석</button><button className={tab === "competitors" ? "active" : ""} onClick={() => setTab("competitors")}>경쟁병원</button><button className={tab === "forecast" ? "active" : ""} onClick={() => setTab("forecast")}>3년전망</button><button className={tab === "profitability" ? "active" : ""} onClick={() => setTab("profitability")}>수익성</button><button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>후보지 비교</button><button className="mobile-print" onClick={printReport} title="PDF로 저장하거나 인쇄"><Printer /></button></div>{tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} />}{tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}{tab === "forecast" && <ForecastPanel />}{tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}{tab === "compare" && <ComparePanel saved={saved} />}</aside>
     </div>
-    {loading && <div className="loading-mask"><div><Activity className="spin" /><b>{specialty} 주변 실제 데이터를 조회하고 있습니다</b><span>주소 좌표 · 의료기관 · 약국 · 지하철역 · 주차</span></div></div>}
+    {loading && <div className="loading-mask"><div><Activity className="spin" /><b>{specialty} 주변 실제 데이터를 조회하고 있습니다</b><span>주소 좌표 · 의료기관 · 약국 · 지하철역 · 주차 · 서울 생활인구</span></div></div>}
   </main>;
 }
