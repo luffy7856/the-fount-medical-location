@@ -205,11 +205,43 @@ async function kakaoSearch(key: string, code: string, kind: LivePlaceKind, latit
   return { places, isTruncated: last.meta?.is_end === false || totalCount > pageableCount };
 }
 
+function shiftedCoordinate(latitude: number, longitude: number, northMeters: number, eastMeters: number) {
+  return {
+    latitude: latitude + northMeters / 111320,
+    longitude: longitude + eastMeters / (111320 * Math.cos(latitude * Math.PI / 180))
+  };
+}
+
+async function kakaoSearchComplete(key: string, code: string, kind: LivePlaceKind, latitude: number, longitude: number, radius: number, query?: string, depth = 0): Promise<KakaoSearchResult> {
+  const primary = await kakaoSearch(key, code, kind, latitude, longitude, radius, query);
+  if (!primary.isTruncated || radius <= 180 || depth >= 2) return primary;
+  const offset = radius * .36;
+  const childRadius = Math.round(radius * .62);
+  const centers = [
+    shiftedCoordinate(latitude, longitude, offset, offset),
+    shiftedCoordinate(latitude, longitude, offset, -offset),
+    shiftedCoordinate(latitude, longitude, -offset, offset),
+    shiftedCoordinate(latitude, longitude, -offset, -offset)
+  ];
+  const children = await Promise.all(centers.map(center => kakaoSearchComplete(key, code, kind, center.latitude, center.longitude, childRadius, query, depth + 1)));
+  const byId = new Map(primary.places.map(place => [place.id, place]));
+  for (const child of children) {
+    for (const place of child.places) {
+      const distanceMeters = haversine(latitude, longitude, place.latitude, place.longitude);
+      if (distanceMeters <= radius) byId.set(place.id, { ...place, distanceMeters });
+    }
+  }
+  return {
+    places: Array.from(byId.values()).sort((a, b) => a.distanceMeters - b.distanceMeters),
+    isTruncated: children.some(child => child.isTruncated)
+  };
+}
+
 async function fetchKakaoPlaces(key: string, latitude: number, longitude: number, radius: number, specialty: Specialty) {
   const [hospital, specialtyHospital, pharmacy, transit, parking] = await Promise.all([
-    kakaoSearch(key, "HP8", "hospital", latitude, longitude, radius),
-    kakaoSearch(key, "HP8", "hospital", latitude, longitude, radius, specialty === "기타" ? "병원" : specialty),
-    kakaoSearch(key, "PM9", "pharmacy", latitude, longitude, radius),
+    kakaoSearchComplete(key, "HP8", "hospital", latitude, longitude, radius),
+    kakaoSearchComplete(key, "HP8", "hospital", latitude, longitude, radius, specialty === "기타" ? "병원" : specialty),
+    kakaoSearchComplete(key, "PM9", "pharmacy", latitude, longitude, radius),
     kakaoSearch(key, "SW8", "transit", latitude, longitude, radius),
     kakaoSearch(key, "PK6", "parking", latitude, longitude, radius)
   ]);
