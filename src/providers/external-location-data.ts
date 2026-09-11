@@ -120,7 +120,9 @@ async function fetchSeoulConsumerPower(context: ProviderContext): Promise<Consum
   if (!context.administrativeCode.startsWith("11")) return { ...base, status: "unsupported", message: "서울시 행정동 소비 데이터는 서울 지역에서만 지원됩니다." };
   if (!key) return base;
   try {
-    const url = new URL(`https://openapi.seoul.go.kr:8088/${encodeURIComponent(key)}/json/${encodeURIComponent(service)}/1/1000`);
+    // 서울 열린데이터광장 8088 포트는 TLS를 제공하지 않습니다. 이 코드는
+    // server-only 모듈이므로 HTTP 호출에도 인증키가 브라우저로 노출되지 않습니다.
+    const url = new URL(`http://openapi.seoul.go.kr:8088/${encodeURIComponent(key)}/json/${encodeURIComponent(service)}/1/1000`);
     const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(9000) });
     const payload = response.ok ? await response.json() : null;
     const rows = findRows(payload);
