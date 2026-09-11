@@ -419,7 +419,15 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
   const livingDemand = livingPopulation?.status === "available" && livingPopulation.total !== undefined ? clamp(35 + livingPopulation.total / 900) : null;
   const demand = demographicDemand !== null && livingDemand !== null ? clamp(demographicDemand * .55 + livingDemand * .45) : demographicDemand ?? livingDemand;
   const observedScore = Math.round(demand === null ? (competition + access) / 2 : (competition + access + demand) / 3);
-  const confidence = clamp((provider === "kakao" ? 66 : 42) + Math.min(places.length, 30) * .7 + (demographics ? 8 : 0) + (livingPopulation?.status === "available" ? 6 : 0), 35, provider === "kakao" ? 96 : 82);
+  // 연결된 데이터 항목의 충족률입니다. 예측 정확도나 개원 성공확률이 아닙니다.
+  const confidence = Math.min(100,
+    (provider === "kakao" ? 8 : 4) +
+    (counts.medical > 0 ? 5 : 0) +
+    (demographics ? 12 : 0) +
+    (livingPopulation?.status === "available" ? 15 : 0) +
+    (transit > 0 || parking > 0 ? 8 : 0) +
+    (growthForecast?.status === "available" ? 5 : 0)
+  );
   const grade = observedScore >= 85 ? "A" : observedScore >= 75 ? "B+" : observedScore >= 65 ? "B" : "C";
   const metrics = [
     { label: "잠재환자 수요", value: demand, note: livingPopulation?.status === "available" ? `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 생활인구 반영` : demographics ? `${demographics.areaName} 인구·종사자` : "인구 데이터 연동 필요", color: COLORS[0] },
