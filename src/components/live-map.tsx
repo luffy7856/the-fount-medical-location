@@ -19,6 +19,27 @@ function distanceMeters(latitude: number, longitude: number, targetLatitude: num
 }
 
 function populationGrid(analysis: LocationAnalysis) {
+  const actualCells = analysis.livingPopulation?.gridCells;
+  if (actualCells?.length) {
+    return actualCells.map(cell => {
+      const latitudeStep = 250 / 111320;
+      const longitudeStep = 250 / (111320 * Math.cos(cell.latitude * Math.PI / 180));
+      return {
+        row: cell.id,
+        column: "actual",
+        centerLatitude: cell.latitude,
+        centerLongitude: cell.longitude,
+        score: Math.round(cell.population),
+        population: cell.population,
+        actual: true,
+        category: POPULATION_COLORS[cell.band],
+        bounds: [
+          [cell.latitude - latitudeStep / 2, cell.longitude - longitudeStep / 2],
+          [cell.latitude + latitudeStep / 2, cell.longitude + longitudeStep / 2]
+        ] as [[number, number], [number, number]]
+      };
+    });
+  }
   const total = analysis.livingPopulation?.total;
   if (!total) return [];
   const { latitude, longitude } = analysis.location;
@@ -49,6 +70,8 @@ function populationGrid(analysis: LocationAnalysis) {
     return {
       ...cell,
       score,
+      population: undefined,
+      actual: false,
       category,
       bounds: [
         [cell.centerLatitude - latitudeStep / 2, cell.centerLongitude - longitudeStep / 2],
@@ -94,7 +117,7 @@ export default function LiveMap({ analysis, activeKinds, populationActive, selec
       bounds={cell.bounds}
       interactive
       pathOptions={{ color: cell.category.color, fillColor: cell.category.color, fillOpacity: .27, weight: .7 }}
-    ><Popup><strong>생활인구 공간분포 추정</strong><br />밀도지수 <b>{cell.score}/100</b> · {cell.category.label}<br />{livingPopulation.referenceDate} {String(livingPopulation.hour).padStart(2, "0")}시<br />행정동 실제 생활인구 {livingPopulation.total?.toLocaleString()}명<br /><small>주변 지하철·약국·의료기관 접근성으로 공간 배분한 추정지수</small></Popup></Rectangle>)}
+    ><Popup><strong>{cell.actual ? "250m 격자 실제 생활인구" : "생활인구 공간분포 추정"}</strong><br />{cell.actual ? <><b>{cell.population?.toLocaleString()}명</b> · {cell.category.label}</> : <>밀도지수 <b>{cell.score}/100</b> · {cell.category.label}</>}<br />{livingPopulation.referenceDate} {String(livingPopulation.hour).padStart(2, "0")}시<br />{cell.actual ? `격자 ${cell.row}` : `행정동 실제 생활인구 ${livingPopulation.total?.toLocaleString()}명`}<br /><small>{cell.actual ? "서울특별시 250m 격자 원자료" : "주변 지하철·약국·의료기관 접근성으로 공간 배분한 추정지수"}</small></Popup></Rectangle>)}
     <Circle center={[latitude, longitude]} radius={analysis.radiusMeters} pathOptions={{ color: "#0f937d", fillColor: "#38b2ac", fillOpacity: .08, weight: 2, dashArray: "6 7" }} />
     <CircleMarker center={[latitude, longitude]} radius={9} bubblingMouseEvents={false} pathOptions={{ color: "#fff", fillColor: "#14263d", fillOpacity: 1, weight: 4 }}>
       <Popup><b>분석 중심지</b><br />{analysis.location.displayName}</Popup>

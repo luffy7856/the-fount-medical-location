@@ -26,8 +26,8 @@ export type LivingPopulationStatus = "available" | "not_configured" | "unsupport
 export type LivingPopulation = {
   status: LivingPopulationStatus;
   source: "서울특별시 서울 생활인구";
-  dataset: "Spop250mLocalResdDong" | "SPOP_DAILYSUM_JACHI_250";
-  spatialUnit: "행정동";
+  dataset: "Spop250mLocalResdDong" | "Se250MSpopLocalResd" | "SPOP_DAILYSUM_JACHI_250";
+  spatialUnit: "행정동" | "250m 격자";
   supportedRegion: "서울특별시";
   referenceDate?: string;
   hour?: number;
@@ -35,6 +35,14 @@ export type LivingPopulation = {
   total?: number;
   male?: number;
   female?: number;
+  gridCells?: Array<{
+    id: string;
+    latitude: number;
+    longitude: number;
+    population: number;
+    band: 0 | 1 | 2 | 3;
+  }>;
+  densityBreaks?: [number, number, number];
   message: string;
 };
 
