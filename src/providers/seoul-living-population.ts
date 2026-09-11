@@ -150,7 +150,7 @@ async function fetchSeoulGridLivingPopulation(key: string, input: {
   const rawCells = rows.flatMap(row => {
     const center = gridCellCenter(row.CELL_ID);
     const population = parseProtectedNumber(row.SPOP);
-    if (!center || population <= 0 || distanceMeters(input.latitude, input.longitude, center.latitude, center.longitude) > input.radiusMeters + 177) return [];
+    if (!center || population <= 0 || distanceMeters(input.latitude, input.longitude, center.latitude, center.longitude) > input.radiusMeters) return [];
     return [{ id: row.CELL_ID.trim(), ...center, population: Math.round(population * 100) / 100 }];
   });
   if (!rawCells.length) throw new Error("no nearby grid");
