@@ -447,7 +447,7 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     metrics, observedScore, grade, confidence,
     insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}${countLimits?.medical ? "곳 이상" : "곳"}과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}${countLimits?.matchingSpecialty ? "곳 이상" : "곳"}을 확인했습니다.${demographics ? ` SGIS ${demographics.year}년 기준 ${demographics.areaName}의 거주인구는 ${demographics.residentPopulation.toLocaleString()}명, 종사자는 ${demographics.workerPopulation.toLocaleString()}명입니다.` : ""}${livingPopulation?.status === "available" ? ` 서울시 ${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 행정동 생활인구 ${livingPopulation.total?.toLocaleString()}명을 수요지표에 함께 반영했습니다.` : ""} 현재 점수는 연결된 공개 데이터만 반영한 베타 관측점수이며, 소비력·임대료 데이터가 모두 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
     strengths, risks,
-    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "거주인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다.", livingPopulation?.status === "available" ? "서울 생활인구는 250m 원자료를 행정동별로 집계한 값이며 지도 원은 해당 행정동의 정확한 경계가 아닙니다." : livingPopulation?.message || "서울 이외 지역의 시간대별 생활인구는 현재 지원하지 않습니다."],
+    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "거주인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다.", livingPopulation?.status === "available" ? "서울 생활인구 숫자는 행정동 실제 총계이며, 지도 격자의 공간분포와 밀도지수는 주변 시설 접근성을 이용한 추정입니다." : livingPopulation?.message || "서울 이외 지역의 시간대별 생활인구는 현재 지원하지 않습니다."],
     demographics,
     livingPopulation,
     growthForecast
