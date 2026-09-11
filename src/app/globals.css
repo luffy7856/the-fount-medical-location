@@ -60,6 +60,9 @@
 
 /* Keep every desktop report tab visible and make the full result panel reachable. */
 @media(min-width:801px){.analysis-panel{min-height:0;height:100%;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}.panel-tabs{grid-template-columns:repeat(5,minmax(0,1fr))}}
+
+.print-only-sections{display:none}.print-competitor-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.print-competitor-summary article{border:1px solid var(--line);border-radius:8px;padding:10px}.print-competitor-summary span{display:block;color:var(--muted);font-size:9px}.print-competitor-summary b{font-size:16px}.print-competitor-table{width:100%;border-collapse:collapse;font-size:9px}.print-competitor-table th,.print-competitor-table td{padding:6px;border-bottom:1px solid var(--line);text-align:left}.print-competitor-table th{background:#f2f6f6;color:#50616b}.print-source-line{display:block;margin-top:8px;color:var(--muted)}
+@media print{.print-only-sections{display:block!important}.print-appendix-section{break-before:page}.print-appendix-section .panel-content{padding:0!important}.print-competitor-table tr,.forecast-years>article,.forecast-history{break-inside:avoid}.print-forecast-section>.panel-content>.section-intro{padding-top:0}.print-forecast-section>.panel-content{display:block!important}}
 .next-step-link{width:100%;min-height:42px;margin-top:12px;border-radius:7px;background:var(--sky);color:#fff;display:flex;align-items:center;justify-content:center;gap:7px;font-size:11px;font-weight:900;text-decoration:none}
 .next-step-link svg{width:15px}
 @media print{.opening-input-grid input{color:#14263d!important}.feasibility-card{background:#fff!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.estimate-disclaimer{font-size:8px}.benchmark-strip{print-color-adjust:exact;-webkit-print-color-adjust:exact}}

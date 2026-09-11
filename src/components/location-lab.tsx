@@ -244,6 +244,20 @@ function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs }: { an
     <FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={onOpeningInputs} compact />
     <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><a className="next-step-link" href="https://www.thefount.co.kr/" target="_blank" rel="noopener noreferrer">정밀 개원분석 상담하기 <ArrowRight /></a></section>
     <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span>{analysis.hiraMedical?.status === "available" && <span>HIRA 공식 수치</span>}{analysis.demographics && <span>SGIS {analysis.demographics.year}</span>}{analysis.livingPopulation?.status === "available" && <span>서울 생활인구</span>}{analysis.consumerPower?.status === "available" && <span>서울시 소비</span>}{analysis.rentMarket?.status === "available" && <span>상가 임대료</span>}{analysis.developmentPlans?.status === "available" && <span>개발계획</span>}</div><small>분석 시각 {formatAnalysisTime(analysis.analyzedAt)}{analysis.livingPopulation?.status === "available" ? ` · 생활인구 공간 단위: ${analysis.livingPopulation.spatialUnit}${analysis.livingPopulation.spatialUnit === "행정동" ? "(250m 원자료 집계)" : ""}` : ""} · 공개 데이터의 등록 상태에 따라 현장과 차이가 있을 수 있습니다.</small></section>
+    <PrintAppendix analysis={analysis} />
+  </div>;
+}
+
+function PrintAppendix({ analysis }: { analysis: LocationAnalysis }) {
+  const hospitals = analysis.places.filter(place => place.kind === "hospital").slice(0, 12);
+  return <div className="print-only-sections">
+    <section className="print-appendix-section">
+      <div className="section-intro"><span>COMPETITION APPENDIX</span><h2>경쟁 의료기관 근거</h2><p>{analysis.specialty} · 반경 {analysis.radiusMeters.toLocaleString()}m · 거리순 주요 12곳</p></div>
+      <div className="print-competitor-summary"><article><span>전체 의료기관</span><b>{formatCount(analysis, "medical")}</b></article><article><span>{analysis.specialty}</span><b>{formatCount(analysis, "matchingSpecialty")}</b></article><article><span>약국</span><b>{formatCount(analysis, "pharmacy")}</b></article></div>
+      <table className="print-competitor-table"><thead><tr><th>의료기관</th><th>분류</th><th>거리</th><th>주소</th></tr></thead><tbody>{hospitals.map(place => <tr key={place.id}><td>{place.name}</td><td>{place.specialty || "의료기관"}</td><td>{place.distanceMeters.toLocaleString()}m</td><td>{place.address || "공개 주소 없음"}</td></tr>)}</tbody></table>
+      <small className="print-source-line">{analysis.hiraMedical?.status === "available" ? "기관 수: HIRA 신고 기준 · 위치와 장소명: Kakao 장소검색" : "기관 수·위치·장소명: Kakao 장소검색 기준"}</small>
+    </section>
+    <section className="print-appendix-section print-forecast-section"><ForecastPanel analysis={analysis} /></section>
   </div>;
 }
 
