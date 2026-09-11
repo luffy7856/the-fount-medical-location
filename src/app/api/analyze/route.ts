@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { GrowthForecast, GrowthForecastPoint, LivingPopulation, LocationAnalysis, LivePlace, LivePlaceKind } from "@/data/location-types";
 import { specialties, type Specialty } from "@/data/specialties";
 import { fetchSeoulLivingPopulation } from "@/providers/seoul-living-population";
+import { fetchExternalLocationData, type ExternalLocationData } from "@/providers/external-location-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -399,7 +400,7 @@ async function fetchOsmPlaces(latitude: number, longitude: number, radius: numbe
   return normalizeOsmElements(data.elements || [], latitude, longitude);
 }
 
-function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"], demographics?: Demographics, livingPopulation?: LivingPopulation, growthForecast?: GrowthForecast): LocationAnalysis {
+function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"], demographics?: Demographics, livingPopulation?: LivingPopulation, growthForecast?: GrowthForecast, externalData?: ExternalLocationData): LocationAnalysis {
   const medical = places.filter(place => place.kind === "hospital");
   const matching = medical.filter(place => matchesSpecialty(place.name, place.specialty, specialty));
   const displayedCounts = {
@@ -409,7 +410,21 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     transit: places.filter(place => place.kind === "transit").length,
     parking: places.filter(place => place.kind === "parking").length
   };
-  const counts = providerTotals || displayedCounts;
+  const kakaoCounts = providerTotals || displayedCounts;
+  const official = externalData?.hiraMedical.status === "available" ? externalData.hiraMedical : undefined;
+  const counts = {
+    ...kakaoCounts,
+    medical: official?.medicalCount ?? kakaoCounts.medical,
+    matchingSpecialty: official?.matchingSpecialtyCount ?? kakaoCounts.matchingSpecialty,
+    pharmacy: official?.pharmacyCount ?? kakaoCounts.pharmacy
+  };
+  const effectiveCountLimits = official ? {
+    medical: false,
+    matchingSpecialty: official.matchingSpecialtyCount === undefined ? Boolean(countLimits?.matchingSpecialty) : false,
+    pharmacy: official.pharmacyCount === undefined ? Boolean(countLimits?.pharmacy) : false,
+    transit: Boolean(countLimits?.transit),
+    parking: Boolean(countLimits?.parking),
+  } : countLimits;
   const { pharmacy, transit, parking } = counts;
   const densityFactor = radiusMeters <= 500 ? 6 : radiusMeters <= 1000 ? 4 : 2;
   const competitionBase = clamp(94 - (counts.matchingSpecialty || counts.medical * .35) * densityFactor);
@@ -418,24 +433,38 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
   const demographicDemand = demographics ? clamp(38 + (demographics.residentPopulation + demographics.workerPopulation * .55) / 1600) : null;
   const livingDemand = livingPopulation?.status === "available" && livingPopulation.total !== undefined ? clamp(35 + livingPopulation.total / 900) : null;
   const demand = demographicDemand !== null && livingDemand !== null ? clamp(demographicDemand * .55 + livingDemand * .45) : demographicDemand ?? livingDemand;
-  const observedScore = Math.round(demand === null ? (competition + access) / 2 : (competition + access + demand) / 3);
+  const consumer = externalData?.consumerPower.status === "available" ? externalData.consumerPower.score ?? null : null;
+  const costEfficiency = externalData?.rentMarket.status === "available" ? externalData.rentMarket.score ?? null : null;
+  const historicGrowth = growthForecast?.growthScore ?? null;
+  const planGrowth = externalData?.developmentPlans.status === "available" ? externalData.developmentPlans.score ?? null : null;
+  const growth = historicGrowth !== null && planGrowth !== null ? clamp(historicGrowth * .65 + planGrowth * .35) : historicGrowth ?? planGrowth;
+  const weightedFactors = [
+    { value: demand, weight: 25 }, { value: competition, weight: 20 }, { value: consumer, weight: 15 },
+    { value: access, weight: 15 }, { value: costEfficiency, weight: 10 }, { value: growth, weight: 15 }
+  ].filter((factor): factor is { value: number; weight: number } => factor.value !== null);
+  const weightTotal = weightedFactors.reduce((sum, factor) => sum + factor.weight, 0);
+  const observedScore = weightTotal ? Math.round(weightedFactors.reduce((sum, factor) => sum + factor.value * factor.weight, 0) / weightTotal) : 0;
   // 연결된 데이터 항목의 충족률입니다. 예측 정확도나 개원 성공확률이 아닙니다.
   const confidence = Math.min(100,
-    (provider === "kakao" ? 8 : 4) +
-    (counts.medical > 0 ? 5 : 0) +
+    (provider === "kakao" ? 5 : 3) +
+    (kakaoCounts.medical > 0 ? 5 : 0) +
+    (official ? 15 : 0) +
     (demographics ? 12 : 0) +
     (livingPopulation?.status === "available" ? 15 : 0) +
+    (consumer !== null ? 15 : 0) +
     (transit > 0 || parking > 0 ? 8 : 0) +
-    (growthForecast?.status === "available" ? 5 : 0)
+    (costEfficiency !== null ? 10 : 0) +
+    (growthForecast?.status === "available" ? 5 : 0) +
+    (planGrowth !== null ? 10 : 0)
   );
   const grade = observedScore >= 85 ? "A" : observedScore >= 75 ? "B+" : observedScore >= 65 ? "B" : "C";
   const metrics = [
     { label: "잠재환자 수요", value: demand, note: livingPopulation?.status === "available" ? `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 생활인구 반영` : demographics ? `${demographics.areaName} 인구·종사자` : "인구 데이터 연동 필요", color: COLORS[0] },
-    { label: "경쟁환경", value: competition, note: `동일 진료과 검색 ${counts.matchingSpecialty}곳`, color: COLORS[1] },
-    { label: "소비력", value: null, note: "소비 데이터 연동 필요", color: COLORS[2] },
+    { label: "경쟁환경", value: competition, note: `동일 진료과 ${official?.matchingSpecialtyCount !== undefined ? "HIRA 공식" : "검색"} ${counts.matchingSpecialty}곳`, color: COLORS[1] },
+    { label: "소비력", value: consumer, note: consumer !== null ? `소비 ${externalData?.consumerPower.percentile}% · 의료비 ${externalData?.consumerPower.medicalPercentile !== undefined ? `${externalData.consumerPower.medicalPercentile}%` : "자료 없음"} 백분위` : externalData?.consumerPower.message || "소비 데이터 연동 필요", color: COLORS[2] },
     { label: "접근성", value: access, note: `지하철역 ${transit} · 주차 ${parking}`, color: COLORS[3] },
-    { label: "비용효율", value: null, note: "임대료 데이터 연동 필요", color: COLORS[4] },
-    { label: "성장성", value: growthForecast?.growthScore ?? null, note: growthForecast?.status === "available" ? `SGIS ${growthForecast.historical[0]?.year}~${growthForecast.baseYear}년 추세 기반` : "개발계획 데이터 연동 필요", color: COLORS[5] }
+    { label: "비용효율", value: costEfficiency, note: costEfficiency !== null ? `평당 월세 중앙값 ${externalData?.rentMarket.monthlyRentPerPyeongManwon?.toLocaleString()}만원` : externalData?.rentMarket.message || "임대료 데이터 연동 필요", color: COLORS[4] },
+    { label: "성장성", value: growth, note: planGrowth !== null ? `SGIS 추세 + 개발계획 ${externalData?.developmentPlans.plans.length}건` : growthForecast?.status === "available" ? `SGIS ${growthForecast.historical[0]?.year}~${growthForecast.baseYear}년 추세 기반` : externalData?.developmentPlans.message || "개발계획 데이터 연동 필요", color: COLORS[5] }
   ];
   const strengths = [
     livingPopulation?.status === "available" ? `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 행정동 생활인구 ${livingPopulation.total?.toLocaleString()}명` : demographics ? `${demographics.areaName} 거주인구 ${demographics.residentPopulation.toLocaleString()}명 · 종사자 ${demographics.workerPopulation.toLocaleString()}명` : "주변 의료기관을 실제 지도에서 확인 가능",
@@ -445,20 +474,25 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
   ];
   const risks = [
     counts.matchingSpecialty >= 8 ? `선택 진료과 검색 ${counts.matchingSpecialty}곳으로 경쟁 주의` : "진료과 분류 누락 가능성 검토 필요",
-    livingPopulation?.status === "available" ? "생활인구는 행정동 집계값으로 선택 반경과 범위가 다름" : demographics ? "SGIS 인구는 행정동 기준으로 반경 데이터와 범위가 다름" : "유동인구·소득·임대료는 아직 점수에 포함되지 않음",
+    livingPopulation?.status === "available" ? "생활인구는 행정동 집계값으로 선택 반경과 범위가 다름" : demographics ? "SGIS 인구는 행정동 기준으로 반경 데이터와 범위가 다름" : "유동인구 데이터가 없어 수요 판단 범위가 제한됨",
     provider === "openstreetmap" ? "OpenStreetMap 등록 범위에 따라 누락 가능" : "공개 장소 데이터 기준으로 실제 운영정보 확인 필요"
   ];
   return {
     mode: "live", provider, analyzedAt: new Date().toISOString(),
     location: { displayName, latitude, longitude }, specialty, radiusMeters,
-    places, counts, displayedCounts, countLimits,
+    places, counts, displayedCounts, countLimits: effectiveCountLimits,
     metrics, observedScore, grade, confidence,
-    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}${countLimits?.medical ? "곳 이상" : "곳"}과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}${countLimits?.matchingSpecialty ? "곳 이상" : "곳"}을 확인했습니다.${demographics ? ` SGIS ${demographics.year}년 기준 ${demographics.areaName}의 거주인구는 ${demographics.residentPopulation.toLocaleString()}명, 종사자는 ${demographics.workerPopulation.toLocaleString()}명입니다.` : ""}${livingPopulation?.status === "available" ? ` 서울시 ${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 행정동 생활인구 ${livingPopulation.total?.toLocaleString()}명을 수요지표에 함께 반영했습니다.` : ""} 현재 점수는 연결된 공개 데이터만 반영한 베타 관측점수이며, 소비력·임대료 데이터가 모두 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
+    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}곳과 ${specialty} 관련 ${counts.matchingSpecialty}곳을 확인했습니다.${official ? " 의료기관 수는 HIRA 신고 기준이며 지도 위치는 Kakao 장소검색을 사용합니다." : " 의료기관 수와 위치는 Kakao 장소검색 기준입니다."}${demographics ? ` SGIS ${demographics.year}년 기준 ${demographics.areaName}의 거주인구는 ${demographics.residentPopulation.toLocaleString()}명, 종사자는 ${demographics.workerPopulation.toLocaleString()}명입니다.` : ""}${livingPopulation?.status === "available" ? ` 서울시 ${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 행정동 생활인구 ${livingPopulation.total?.toLocaleString()}명을 수요지표에 반영했습니다.` : ""}${consumer !== null ? ` 소비력은 서울 행정동 소비총액 백분위 ${externalData?.consumerPower.percentile}%입니다.` : ""}${costEfficiency !== null ? ` 임대료 ${externalData?.rentMarket.sampleCount}개 표본의 비용효율을 반영했습니다.` : ""} 최종점수는 연결된 항목만 가중 평균한 베타 관측점수입니다.`,
     strengths, risks,
-    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "거주인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다.", livingPopulation?.status === "available" ? "서울 생활인구 숫자는 행정동 실제 총계이며, 지도 격자의 공간분포와 밀도지수는 주변 시설 접근성을 이용한 추정입니다." : livingPopulation?.message || "서울 이외 지역의 시간대별 생활인구는 현재 지원하지 않습니다."],
+    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "거주인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다.", livingPopulation?.status === "available" ? "서울 생활인구 숫자는 행정동 실제 총계이며, 지도 격자의 공간분포와 밀도지수는 주변 시설 접근성을 이용한 추정입니다." : livingPopulation?.message || "서울 이외 지역의 시간대별 생활인구는 현재 지원하지 않습니다.", consumer !== null ? "서울시 소비 데이터는 행정동 집계값이며 병원별 실제 의료매출이나 환자 지출을 뜻하지 않습니다." : externalData?.consumerPower.message || "소비력 데이터가 연결되지 않았습니다."],
     demographics,
     livingPopulation,
-    growthForecast
+    growthForecast,
+    dataConnections: externalData?.dataConnections,
+    hiraMedical: externalData?.hiraMedical,
+    consumerPower: externalData?.consumerPower,
+    rentMarket: externalData?.rentMarket,
+    developmentPlans: externalData?.developmentPlans
   };
 }
 
@@ -502,12 +536,16 @@ export async function POST(request: NextRequest) {
       fetchSgisDemographics(displayName),
       kakaoKey ? administrativeDongCodeKakao(latitude, longitude, kakaoKey) : Promise.resolve(undefined)
     ]);
-    const livingPopulation = await fetchSeoulLivingPopulation({
-      administrativeCode: kakaoAdministrativeCode || sgis.demographics?.administrativeCode,
-      date: typeof body.populationDate === "string" ? body.populationDate : undefined,
-      hour: Number(body.populationHour)
-    });
-    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, sgis.demographics, livingPopulation, sgis.growthForecast);
+    const administrativeCode = kakaoAdministrativeCode || sgis.demographics?.administrativeCode;
+    const [livingPopulation, externalData] = await Promise.all([
+      fetchSeoulLivingPopulation({
+        administrativeCode,
+        date: typeof body.populationDate === "string" ? body.populationDate : undefined,
+        hour: Number(body.populationHour)
+      }),
+      fetchExternalLocationData({ latitude, longitude, radiusMeters, administrativeCode, specialty })
+    ]);
+    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, sgis.demographics, livingPopulation, sgis.growthForecast, externalData);
     return NextResponse.json({ ...analysis, needsClientFetch, osmQuery: needsClientFetch ? buildOsmQuery(latitude, longitude, radiusMeters) : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";

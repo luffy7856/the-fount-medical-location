@@ -18,6 +18,15 @@ NEXT_PUBLIC_MAP_TILE_URL=
 
 `KAKAO_REST_API_KEY`를 설정하면 한국 주소 검색, 행정동 판별과 주변 장소 조회가 Kakao Local API로 전환됩니다. SGIS 키는 거주인구·종사자·가구·사업체 통계에, `SEOUL_OPEN_DATA_API_KEY`는 서울시 생활인구에 사용합니다. 인증값은 모두 서버에서만 사용하며 브라우저에 노출하지 않습니다. 지도 타일은 기본적으로 OpenStreetMap을 사용하며, 서비스 트래픽이 증가하면 별도 계약한 타일 공급자의 URL을 `NEXT_PUBLIC_MAP_TILE_URL`에 설정해야 합니다.
 
+## 정밀 데이터 공급자 연결
+
+- HIRA 공식 의료기관: `HIRA_SERVICE_KEY`를 등록하면 병원정보서비스의 반경별 공식 수치를 우선 사용합니다. 지도 마커와 장소명은 Kakao를 계속 사용해 출처를 분리합니다.
+- 서울 소비력: 기존 `SEOUL_OPEN_DATA_API_KEY`를 사용합니다. 공식 서비스명 `VwsmAdstrdNcmCnsmpW`를 기본값으로 사용하며, 행정동 총지출 백분위 60%와 의료비 지출 백분위 40%를 소비력 참고점수에 반영합니다.
+- 상가 임대료: `COMMERCIAL_RENT_API_KEY`, `COMMERCIAL_RENT_API_URL_TEMPLATE`을 등록합니다. 응답에는 `monthlyRentPerPyeongManwon`이 필요하며 표본 중앙값을 사용합니다.
+- 개발계획: `DEVELOPMENT_PLAN_API_KEY`(또는 `VWORLD_API_KEY`), `DEVELOPMENT_PLAN_API_URL_TEMPLATE`을 등록합니다. 응답에는 `name`, `category`, `status`, 선택적으로 `distanceMeters`, `targetDate`를 사용합니다.
+
+URL 템플릿은 `{key}`, `{lat}`, `{lng}`, `{radius}`, `{admCode}`를 지원합니다. 키 값은 서버 환경변수에서만 사용되고 API 응답에는 연결 상태와 필요한 변수 이름만 포함됩니다.
+
 서울 생활인구는 `Spop250mLocalResdDong` 서비스의 행정동 집계값입니다. 지도에서 보이는 원은 행정동의 정확한 경계나 개별 250m 격자를 뜻하지 않고, 선택 위치가 속한 행정동의 시간대별 강도를 표현합니다. 서울 이외 지역이나 키 미설정 상태는 미지원 사유를 화면에 그대로 표시합니다.
 
 ## 실행

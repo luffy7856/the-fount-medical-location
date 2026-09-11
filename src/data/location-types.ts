@@ -64,6 +64,77 @@ export type GrowthForecast = {
   message: string;
 };
 
+export type ExternalDataStatus = "available" | "not_configured" | "unsupported" | "no_data" | "error";
+
+export type DataConnection = {
+  id: "hira" | "consumer" | "rent" | "development";
+  label: string;
+  status: ExternalDataStatus;
+  source: string;
+  message: string;
+  requiredEnvironmentVariables: string[];
+  setupUrl: string;
+  referenceDate?: string;
+  spatialUnit?: string;
+};
+
+export type HiraMedicalData = {
+  status: ExternalDataStatus;
+  source: "건강보험심사평가원 병원정보서비스";
+  referenceDate: string;
+  radiusMeters: number;
+  medicalCount?: number;
+  matchingSpecialtyCount?: number;
+  pharmacyCount?: number;
+  message: string;
+};
+
+export type ConsumerPowerData = {
+  status: ExternalDataStatus;
+  source: "서울시 상권분석서비스(소비-행정동)";
+  spatialUnit: "행정동";
+  administrativeCode?: string;
+  areaName?: string;
+  referencePeriod?: string;
+  totalConsumptionWon?: number;
+  percentile?: number;
+  medicalConsumptionWon?: number;
+  medicalPercentile?: number;
+  score?: number;
+  message: string;
+};
+
+export type RentMarketData = {
+  status: ExternalDataStatus;
+  source: string;
+  spatialUnit: string;
+  referenceDate?: string;
+  sampleCount?: number;
+  monthlyRentPerPyeongManwon?: number;
+  medianDepositManwon?: number;
+  score?: number;
+  message: string;
+};
+
+export type DevelopmentPlanItem = {
+  id: string;
+  name: string;
+  category: string;
+  status: string;
+  distanceMeters?: number;
+  targetDate?: string;
+};
+
+export type DevelopmentPlanData = {
+  status: ExternalDataStatus;
+  source: string;
+  referenceDate?: string;
+  radiusMeters: number;
+  plans: DevelopmentPlanItem[];
+  score?: number;
+  message: string;
+};
+
 export type LocationAnalysis = {
   mode: "live";
   provider: "kakao" | "openstreetmap";
@@ -118,6 +189,11 @@ export type LocationAnalysis = {
   };
   livingPopulation?: LivingPopulation;
   growthForecast?: GrowthForecast;
+  dataConnections?: DataConnection[];
+  hiraMedical?: HiraMedicalData;
+  consumerPower?: ConsumerPowerData;
+  rentMarket?: RentMarketData;
+  developmentPlans?: DevelopmentPlanData;
   needsClientFetch?: boolean;
   osmQuery?: string;
 };
