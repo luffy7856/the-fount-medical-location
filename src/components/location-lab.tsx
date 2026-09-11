@@ -74,6 +74,14 @@ function defaultPopulationDate() {
   return `${seoul.getFullYear()}-${String(seoul.getMonth() + 1).padStart(2, "0")}-${String(seoul.getDate()).padStart(2, "0")}`;
 }
 
+function formatAnalysisTime(value: string) {
+  if (value === new Date(0).toISOString()) return "분석 대기";
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).format(new Date(value));
+}
+
 async function fetchOsmInBrowser(query: string) {
   const endpoints = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.osm.jp/api/interpreter"];
   for (const endpoint of endpoints) {
@@ -180,7 +188,7 @@ function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs }: { an
     <section className="panel-section data-coverage"><span>DATA ROADMAP</span><h3>정밀점수에 필요한 추가 데이터</h3><p>건강보험심사평가원·통계청·상권·임대료 API 인증키를 연결하면 잠재환자, 소비력, 비용효율, 성장성까지 실제 수치로 확장됩니다.</p></section>
     <FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={onOpeningInputs} compact />
     <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><button>정밀 개원분석 상담하기 <ArrowRight /></button></section>
-    <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span>{analysis.demographics && <span>SGIS {analysis.demographics.year}</span>}{analysis.livingPopulation?.status === "available" && <span>서울 생활인구</span>}<span>실제 공개 데이터</span></div><small>분석 시각 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")}{analysis.livingPopulation?.status === "available" ? " · 생활인구 공간 단위: 행정동(250m 원자료 집계)" : ""} · 공개 데이터의 등록 상태에 따라 현장과 차이가 있을 수 있습니다.</small></section>
+    <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span>{analysis.demographics && <span>SGIS {analysis.demographics.year}</span>}{analysis.livingPopulation?.status === "available" && <span>서울 생활인구</span>}<span>실제 공개 데이터</span></div><small>분석 시각 {formatAnalysisTime(analysis.analyzedAt)}{analysis.livingPopulation?.status === "available" ? " · 생활인구 공간 단위: 행정동(250m 원자료 집계)" : ""} · 공개 데이터의 등록 상태에 따라 현장과 차이가 있을 수 있습니다.</small></section>
   </div>;
 }
 
@@ -319,7 +327,7 @@ export default function LocationLab() {
         </div>}
         <div className={`live-map-note ${analysis.livingPopulation ? "with-timeline" : ""}`}><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span>{analysis.livingPopulation?.status === "available" && <span><i className="population-dot" /> 생활인구 낮음→높음</span>}</div>
       </section>
-      <aside className="analysis-panel"><div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>발행 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")}</small></div><div className="sheet-handle" /><div className="panel-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>지역분석</button><button className={tab === "competitors" ? "active" : ""} onClick={() => setTab("competitors")}>경쟁병원</button><button className={tab === "forecast" ? "active" : ""} onClick={() => setTab("forecast")}>3년전망</button><button className={tab === "profitability" ? "active" : ""} onClick={() => setTab("profitability")}>수익성</button><button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>후보지 비교</button><button className="mobile-print" onClick={printReport} title="PDF로 저장하거나 인쇄"><Printer /></button></div>{tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} />}{tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}{tab === "forecast" && <ForecastPanel />}{tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}{tab === "compare" && <ComparePanel saved={saved} />}</aside>
+      <aside className="analysis-panel"><div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>발행 {formatAnalysisTime(analysis.analyzedAt)}</small></div><div className="sheet-handle" /><div className="panel-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>지역분석</button><button className={tab === "competitors" ? "active" : ""} onClick={() => setTab("competitors")}>경쟁병원</button><button className={tab === "forecast" ? "active" : ""} onClick={() => setTab("forecast")}>3년전망</button><button className={tab === "profitability" ? "active" : ""} onClick={() => setTab("profitability")}>수익성</button><button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>후보지 비교</button><button className="mobile-print" onClick={printReport} title="PDF로 저장하거나 인쇄"><Printer /></button></div>{tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} />}{tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}{tab === "forecast" && <ForecastPanel />}{tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}{tab === "compare" && <ComparePanel saved={saved} />}</aside>
     </div>
     {loading && <div className="loading-mask"><div><Activity className="spin" /><b>{specialty} 주변 실제 데이터를 조회하고 있습니다</b><span>주소 좌표 · 의료기관 · 약국 · 지하철역 · 주차 · 서울 생활인구</span></div></div>}
   </main>;
