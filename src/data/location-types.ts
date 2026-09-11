@@ -38,6 +38,32 @@ export type LivingPopulation = {
   message: string;
 };
 
+export type GrowthForecastPoint = {
+  year: number;
+  kind: "observed" | "projected";
+  residentPopulation: number;
+  workerPopulation: number;
+  businesses: number;
+};
+
+export type GrowthForecast = {
+  status: "available" | "insufficient_data";
+  source: "SGIS";
+  model: "최근 3개년 선형 추세 외삽";
+  areaName: string;
+  baseYear: number;
+  forecastYears: number[];
+  historical: GrowthForecastPoint[];
+  projected: GrowthForecastPoint[];
+  annualChange: {
+    residentPopulation: number;
+    workerPopulation: number;
+    businesses: number;
+  };
+  growthScore?: number;
+  message: string;
+};
+
 export type LocationAnalysis = {
   mode: "live";
   provider: "kakao" | "openstreetmap";
@@ -91,6 +117,7 @@ export type LocationAnalysis = {
     averageAge: number | null;
   };
   livingPopulation?: LivingPopulation;
+  growthForecast?: GrowthForecast;
   needsClientFetch?: boolean;
   osmQuery?: string;
 };

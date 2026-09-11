@@ -114,7 +114,7 @@ function withLivingPopulation(analysis: LocationAnalysis, livingPopulation: Livi
     const livingDemand = Math.max(0, Math.min(100, Math.round(35 + livingPopulation.total / 900)));
     const demand = demographicDemand === null ? livingDemand : Math.round(demographicDemand * .55 + livingDemand * .45);
     metrics[0] = { ...metrics[0], value: demand, note: `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 생활인구 반영` };
-    const observed = metrics.filter(metric => metric.value !== null).map(metric => metric.value as number);
+    const observed = [metrics[0], metrics[1], metrics[3]].filter(metric => metric.value !== null).map(metric => metric.value as number);
     const observedScore = Math.round(observed.reduce((sum, value) => sum + value, 0) / observed.length);
     return { ...analysis, livingPopulation, metrics, observedScore, grade: observedScore >= 85 ? "A" : observedScore >= 75 ? "B+" : observedScore >= 65 ? "B" : "C" };
   }
@@ -201,8 +201,30 @@ function CompetitorPanel({ analysis, selected, onSelect }: { analysis: LocationA
   </div>;
 }
 
-function ForecastPanel() {
-  return <div className="panel-content"><div className="section-intro"><span>DATA CONNECTION</span><h2>3년 전망 데이터 준비</h2><p>가상의 전망 수치는 더 이상 표시하지 않습니다.</p></div><div className="honest-placeholder"><BarChart3 /><h3>개발계획·인구추계 API가 필요합니다</h3><p>국토교통부, 통계청 및 지자체 개발계획 데이터를 연결한 뒤에만 실제 1·2·3년 전망을 계산합니다.</p><ul><li>신규 아파트 입주와 주택 공급</li><li>재개발·재건축·신축건물</li><li>교통망 개통 계획</li><li>의료기관 개폐업 추세</li></ul></div></div>;
+function ForecastPanel({ analysis }: { analysis: LocationAnalysis }) {
+  const forecast = analysis.growthForecast;
+  if (!forecast || forecast.status !== "available") {
+    return <div className="panel-content"><div className="section-intro"><span>DATA CONNECTION</span><h2>3년 전망 데이터 준비</h2><p>가상의 전망 수치는 표시하지 않습니다.</p></div><div className="honest-placeholder"><BarChart3 /><h3>연도별 SGIS 통계가 필요합니다</h3><p>{forecast?.message || "해당 위치의 최근 연도별 인구·종사자·사업체 통계를 불러오지 못했습니다."}</p><ul><li>신규 아파트 입주와 주택 공급</li><li>재개발·재건축·신축건물</li><li>교통망 개통 계획</li><li>의료기관 개폐업 추세</li></ul></div></div>;
+  }
+  const base = forecast.historical.at(-1)!;
+  const trendLabel = (value: number) => value > .05 ? `+${value}%` : `${value}%`;
+  const changeFromBase = (value: number, original: number) => original > 0 ? (value / original - 1) * 100 : 0;
+  return <div className="panel-content forecast-panel">
+    <div className="section-intro"><span>SGIS TREND FORECAST</span><h2>{forecast.forecastYears[0]}~{forecast.forecastYears[2]} 3년 전망</h2><p>{forecast.areaName} · 실제 과거 통계 기반 추정</p></div>
+    <div className="forecast-score-card"><div><span>성장성 참고점수</span><b>{forecast.growthScore}<small>/100</small></b></div><p>{forecast.message}</p></div>
+    <div className="forecast-rate-grid">
+      <article><span>거주인구 연간 변화</span><b className={forecast.annualChange.residentPopulation < 0 ? "down" : "up"}>{trendLabel(forecast.annualChange.residentPopulation)}</b></article>
+      <article><span>종사자 연간 변화</span><b className={forecast.annualChange.workerPopulation < 0 ? "down" : "up"}>{trendLabel(forecast.annualChange.workerPopulation)}</b></article>
+      <article><span>사업체 연간 변화</span><b className={forecast.annualChange.businesses < 0 ? "down" : "up"}>{trendLabel(forecast.annualChange.businesses)}</b></article>
+    </div>
+    <div className="forecast-years">{forecast.projected.map(point => <article key={point.year}>
+      <div><span>{point.year}</span><em>추정</em></div>
+      <dl><div><dt>거주인구</dt><dd>{point.residentPopulation.toLocaleString()}명 <small>{trendLabel(Math.round(changeFromBase(point.residentPopulation, base.residentPopulation) * 10) / 10)}</small></dd></div><div><dt>종사자</dt><dd>{point.workerPopulation.toLocaleString()}명 <small>{trendLabel(Math.round(changeFromBase(point.workerPopulation, base.workerPopulation) * 10) / 10)}</small></dd></div><div><dt>사업체</dt><dd>{point.businesses.toLocaleString()}개 <small>{trendLabel(Math.round(changeFromBase(point.businesses, base.businesses) * 10) / 10)}</small></dd></div></dl>
+    </article>)}</div>
+    <section className="forecast-history"><h3>계산에 사용한 실제 통계</h3>{forecast.historical.map(point => <div key={point.year}><b>{point.year}</b><span>거주 {point.residentPopulation.toLocaleString()}명</span><span>종사자 {point.workerPopulation.toLocaleString()}명</span><span>사업체 {point.businesses.toLocaleString()}개</span></div>)}</section>
+    <div className="forecast-warning"><AlertTriangle /><p><b>전망값은 보장 수치가 아닙니다.</b> SGIS 행정동 통계의 최근 변화량을 선형 적용한 추정치입니다. 아파트 입주·재개발·교통망·의료기관 개폐업 계획은 아직 포함되지 않았습니다.</p></div>
+    <section className="source-note"><b>출처와 산식</b><div><span>SGIS 실제 통계</span><span>{forecast.model}</span><span>행정동 단위</span></div><small>기준연도 {forecast.baseYear}년 · 선택 반경과 행정동 범위는 일치하지 않을 수 있습니다.</small></section>
+  </div>;
 }
 
 function ComparePanel({ saved }: { saved: LocationAnalysis[] }) {
@@ -327,7 +349,7 @@ export default function LocationLab() {
         </div>}
         <div className={`live-map-note ${analysis.livingPopulation ? "with-timeline" : ""}`}><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span>{analysis.livingPopulation?.status === "available" && <span><i className="population-dot" /> 생활인구 낮음→높음</span>}</div>
       </section>
-      <aside className="analysis-panel"><div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>발행 {formatAnalysisTime(analysis.analyzedAt)}</small></div><div className="sheet-handle" /><div className="panel-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>지역분석</button><button className={tab === "competitors" ? "active" : ""} onClick={() => setTab("competitors")}>경쟁병원</button><button className={tab === "forecast" ? "active" : ""} onClick={() => setTab("forecast")}>3년전망</button><button className={tab === "profitability" ? "active" : ""} onClick={() => setTab("profitability")}>수익성</button><button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>후보지 비교</button><button className="mobile-print" onClick={printReport} title="PDF로 저장하거나 인쇄"><Printer /></button></div>{tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} />}{tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}{tab === "forecast" && <ForecastPanel />}{tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}{tab === "compare" && <ComparePanel saved={saved} />}</aside>
+      <aside className="analysis-panel"><div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>발행 {formatAnalysisTime(analysis.analyzedAt)}</small></div><div className="sheet-handle" /><div className="panel-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>지역분석</button><button className={tab === "competitors" ? "active" : ""} onClick={() => setTab("competitors")}>경쟁병원</button><button className={tab === "forecast" ? "active" : ""} onClick={() => setTab("forecast")}>3년전망</button><button className={tab === "profitability" ? "active" : ""} onClick={() => setTab("profitability")}>수익성</button><button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>후보지 비교</button><button className="mobile-print" onClick={printReport} title="PDF로 저장하거나 인쇄"><Printer /></button></div>{tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} />}{tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}{tab === "forecast" && <ForecastPanel analysis={analysis} />}{tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}{tab === "compare" && <ComparePanel saved={saved} />}</aside>
     </div>
     {loading && <div className="loading-mask"><div><Activity className="spin" /><b>{specialty} 주변 실제 데이터를 조회하고 있습니다</b><span>주소 좌표 · 의료기관 · 약국 · 지하철역 · 주차 · 서울 생활인구</span></div></div>}
   </main>;

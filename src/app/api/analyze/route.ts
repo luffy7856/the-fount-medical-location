@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { LivingPopulation, LocationAnalysis, LivePlace, LivePlaceKind } from "@/data/location-types";
+import type { GrowthForecast, GrowthForecastPoint, LivingPopulation, LocationAnalysis, LivePlace, LivePlaceKind } from "@/data/location-types";
 import { specialties, type Specialty } from "@/data/specialties";
 import { fetchSeoulLivingPopulation } from "@/providers/seoul-living-population";
 
@@ -119,11 +119,56 @@ async function reverseOsm(latitude: number, longitude: number) {
 }
 
 type Demographics = NonNullable<LocationAnalysis["demographics"]>;
+type SgisResult = { demographics?: Demographics; growthForecast?: GrowthForecast };
 
-async function fetchSgisDemographics(address: string): Promise<Demographics | undefined> {
+function buildGrowthForecast(history: GrowthForecastPoint[], areaName: string): GrowthForecast {
+  const sorted = [...history].sort((a, b) => a.year - b.year);
+  const first = sorted[0];
+  const last = sorted.at(-1)!;
+  const span = Math.max(1, last.year - first.year);
+  const slope = {
+    residentPopulation: (last.residentPopulation - first.residentPopulation) / span,
+    workerPopulation: (last.workerPopulation - first.workerPopulation) / span,
+    businesses: (last.businesses - first.businesses) / span
+  };
+  const currentYear = new Date().getFullYear();
+  const forecastYears = [currentYear + 1, currentYear + 2, currentYear + 3];
+  const project = (value: number, change: number, year: number) => Math.max(0, Math.round(value + change * (year - last.year)));
+  const projected = forecastYears.map(year => ({
+    year,
+    kind: "projected" as const,
+    residentPopulation: project(last.residentPopulation, slope.residentPopulation, year),
+    workerPopulation: project(last.workerPopulation, slope.workerPopulation, year),
+    businesses: project(last.businesses, slope.businesses, year)
+  }));
+  const percent = (change: number, base: number) => base > 0 ? Math.round(change / base * 1000) / 10 : 0;
+  const annualChange = {
+    residentPopulation: percent(slope.residentPopulation, last.residentPopulation),
+    workerPopulation: percent(slope.workerPopulation, last.workerPopulation),
+    businesses: percent(slope.businesses, last.businesses)
+  };
+  const combinedChange = annualChange.residentPopulation * .4 + annualChange.workerPopulation * .35 + annualChange.businesses * .25;
+  return {
+    status: sorted.length >= 2 ? "available" : "insufficient_data",
+    source: "SGIS",
+    model: "최근 3개년 선형 추세 외삽",
+    areaName,
+    baseYear: last.year,
+    forecastYears,
+    historical: sorted,
+    projected,
+    annualChange,
+    growthScore: sorted.length >= 2 ? clamp(50 + combinedChange * 6, 10, 90) : undefined,
+    message: sorted.length >= 2
+      ? `SGIS ${first.year}~${last.year}년 행정동 통계의 연간 변화량을 ${forecastYears[0]}~${forecastYears[2]}년에 선형 적용한 추정치입니다.`
+      : "연도별 SGIS 통계가 부족해 3년 전망을 계산할 수 없습니다."
+  };
+}
+
+async function fetchSgisDemographics(address: string): Promise<SgisResult> {
   const consumerKey = process.env.SGIS_CONSUMER_KEY;
   const consumerSecret = process.env.SGIS_CONSUMER_SECRET;
-  if (!consumerKey || !consumerSecret) return undefined;
+  if (!consumerKey || !consumerSecret) return {};
   try {
     const authUrl = new URL("https://sgisapi.mods.go.kr/OpenAPI3/auth/authentication.json");
     authUrl.searchParams.set("consumer_key", consumerKey);
@@ -131,7 +176,7 @@ async function fetchSgisDemographics(address: string): Promise<Demographics | un
     const authResponse = await fetch(authUrl, { cache: "no-store", signal: AbortSignal.timeout(7000) });
     const auth = authResponse.ok ? await authResponse.json() : null;
     const accessToken = auth?.result?.accessToken;
-    if (!accessToken) return undefined;
+    if (!accessToken) return {};
 
     const geocodeUrl = new URL("https://sgisapi.mods.go.kr/OpenAPI3/addr/geocode.json");
     geocodeUrl.searchParams.set("accessToken", accessToken);
@@ -141,30 +186,39 @@ async function fetchSgisDemographics(address: string): Promise<Demographics | un
     const geocode = geocodeResponse.ok ? await geocodeResponse.json() : null;
     const matched = geocode?.result?.resultdata?.[0];
     const administrativeCode = String(matched?.adm_cd || "").slice(0, 8);
-    if (administrativeCode.length < 5) return undefined;
+    if (administrativeCode.length < 5) return {};
 
-    const makeStatsUrl = (path: string) => {
+    const makeStatsUrl = (path: string, year: number) => {
       const url = new URL(`https://sgisapi.mods.go.kr/OpenAPI3/stats/${path}.json`);
       url.searchParams.set("accessToken", accessToken);
-      url.searchParams.set("year", "2024");
+      url.searchParams.set("year", String(year));
       url.searchParams.set("adm_cd", administrativeCode);
       url.searchParams.set("low_search", "0");
       return url;
     };
-    const [populationResponse, companyResponse] = await Promise.all([
-      fetch(makeStatsUrl("population"), { cache: "no-store", signal: AbortSignal.timeout(7000) }),
-      fetch(makeStatsUrl("company"), { cache: "no-store", signal: AbortSignal.timeout(7000) })
-    ]);
-    const populationData = populationResponse.ok ? await populationResponse.json() : null;
-    const companyData = companyResponse.ok ? await companyResponse.json() : null;
-    const population = populationData?.result?.[0];
-    const company = companyData?.result?.[0];
-    if (!population && !company) return undefined;
     const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
-    return {
+    const years = [2022, 2023, 2024];
+    const snapshots = await Promise.all(years.map(async year => {
+      const [populationResponse, companyResponse] = await Promise.all([
+        fetch(makeStatsUrl("population", year), { cache: "no-store", signal: AbortSignal.timeout(7000) }),
+        fetch(makeStatsUrl("company", year), { cache: "no-store", signal: AbortSignal.timeout(7000) })
+      ]);
+      const populationData = populationResponse.ok ? await populationResponse.json() : null;
+      const companyData = companyResponse.ok ? await companyResponse.json() : null;
+      const population = populationData?.result?.[0];
+      const company = companyData?.result?.[0];
+      if (!population && !company) return undefined;
+      return { year, population, company };
+    }));
+    const available = snapshots.filter((item): item is NonNullable<typeof item> => Boolean(item));
+    const latest = available.at(-1);
+    if (!latest) return {};
+    const { population, company, year } = latest;
+    const areaName = population?.adm_nm || company?.adm_nm || matched?.adm_nm || matched?.sgg_nm || "선택 행정구역";
+    const demographics: Demographics = {
       source: "SGIS",
-      year: 2024,
-      areaName: population?.adm_nm || company?.adm_nm || matched?.adm_nm || matched?.sgg_nm || "선택 행정구역",
+      year,
+      areaName,
       administrativeCode,
       residentPopulation: number(population?.tot_ppltn),
       workerPopulation: number(company?.tot_worker || population?.employee_cnt),
@@ -172,8 +226,16 @@ async function fetchSgisDemographics(address: string): Promise<Demographics | un
       businesses: number(company?.corp_cnt || population?.corp_cnt),
       averageAge: Number.isFinite(Number(population?.avg_age)) ? Number(population.avg_age) : null
     };
+    const history: GrowthForecastPoint[] = available.map(item => ({
+      year: item.year,
+      kind: "observed" as const,
+      residentPopulation: number(item.population?.tot_ppltn),
+      workerPopulation: number(item.company?.tot_worker || item.population?.employee_cnt),
+      businesses: number(item.company?.corp_cnt || item.population?.corp_cnt)
+    })).filter(item => item.residentPopulation > 0 || item.workerPopulation > 0 || item.businesses > 0);
+    return { demographics, growthForecast: buildGrowthForecast(history, areaName) };
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -337,7 +399,7 @@ async function fetchOsmPlaces(latitude: number, longitude: number, radius: numbe
   return normalizeOsmElements(data.elements || [], latitude, longitude);
 }
 
-function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"], demographics?: Demographics, livingPopulation?: LivingPopulation): LocationAnalysis {
+function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"], demographics?: Demographics, livingPopulation?: LivingPopulation, growthForecast?: GrowthForecast): LocationAnalysis {
   const medical = places.filter(place => place.kind === "hospital");
   const matching = medical.filter(place => matchesSpecialty(place.name, place.specialty, specialty));
   const displayedCounts = {
@@ -365,7 +427,7 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     { label: "소비력", value: null, note: "소비 데이터 연동 필요", color: COLORS[2] },
     { label: "접근성", value: access, note: `지하철역 ${transit} · 주차 ${parking}`, color: COLORS[3] },
     { label: "비용효율", value: null, note: "임대료 데이터 연동 필요", color: COLORS[4] },
-    { label: "성장성", value: null, note: "개발계획 데이터 연동 필요", color: COLORS[5] }
+    { label: "성장성", value: growthForecast?.growthScore ?? null, note: growthForecast?.status === "available" ? `SGIS ${growthForecast.historical[0]?.year}~${growthForecast.baseYear}년 추세 기반` : "개발계획 데이터 연동 필요", color: COLORS[5] }
   ];
   const strengths = [
     livingPopulation?.status === "available" ? `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 행정동 생활인구 ${livingPopulation.total?.toLocaleString()}명` : demographics ? `${demographics.areaName} 거주인구 ${demographics.residentPopulation.toLocaleString()}명 · 종사자 ${demographics.workerPopulation.toLocaleString()}명` : "주변 의료기관을 실제 지도에서 확인 가능",
@@ -387,7 +449,8 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     strengths, risks,
     limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "거주인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다.", livingPopulation?.status === "available" ? "서울 생활인구는 250m 원자료를 행정동별로 집계한 값이며 지도 원은 해당 행정동의 정확한 경계가 아닙니다." : livingPopulation?.message || "서울 이외 지역의 시간대별 생활인구는 현재 지원하지 않습니다."],
     demographics,
-    livingPopulation
+    livingPopulation,
+    growthForecast
   };
 }
 
@@ -427,16 +490,16 @@ export async function POST(request: NextRequest) {
       try { places = await fetchOsmPlaces(latitude, longitude, radiusMeters); }
       catch { needsClientFetch = true; }
     }
-    const [demographics, kakaoAdministrativeCode] = await Promise.all([
+    const [sgis, kakaoAdministrativeCode] = await Promise.all([
       fetchSgisDemographics(displayName),
       kakaoKey ? administrativeDongCodeKakao(latitude, longitude, kakaoKey) : Promise.resolve(undefined)
     ]);
     const livingPopulation = await fetchSeoulLivingPopulation({
-      administrativeCode: kakaoAdministrativeCode || demographics?.administrativeCode,
+      administrativeCode: kakaoAdministrativeCode || sgis.demographics?.administrativeCode,
       date: typeof body.populationDate === "string" ? body.populationDate : undefined,
       hour: Number(body.populationHour)
     });
-    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, demographics, livingPopulation);
+    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, sgis.demographics, livingPopulation, sgis.growthForecast);
     return NextResponse.json({ ...analysis, needsClientFetch, osmQuery: needsClientFetch ? buildOsmQuery(latitude, longitude, radiusMeters) : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";
