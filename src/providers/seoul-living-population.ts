@@ -2,6 +2,7 @@ import "server-only";
 import type { LivingPopulation } from "@/data/location-types";
 
 const SERVICE = "Spop250mLocalResdDong" as const;
+const LEGACY_LAST_DATE = "2026-07-31";
 const MALE_FIELDS = ["M00", "M10", "M15", "M20", "M25", "M30", "M35", "M40", "M45", "M50", "M55", "M60", "M65", "M70"] as const;
 const FEMALE_FIELDS = ["F00", "F10", "F15", "F20", "F25", "F30", "F35", "F40", "F45", "F50", "F55", "F60", "F65", "F70"] as const;
 
@@ -32,7 +33,8 @@ export function defaultLivingPopulationDate() {
   const now = new Date();
   const seoul = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
   seoul.setDate(seoul.getDate() - 4);
-  return `${seoul.getFullYear()}-${String(seoul.getMonth() + 1).padStart(2, "0")}-${String(seoul.getDate()).padStart(2, "0")}`;
+  const availableDate = `${seoul.getFullYear()}-${String(seoul.getMonth() + 1).padStart(2, "0")}-${String(seoul.getDate()).padStart(2, "0")}`;
+  return availableDate > LEGACY_LAST_DATE ? LEGACY_LAST_DATE : availableDate;
 }
 
 export async function fetchSeoulLivingPopulation(input: {
@@ -49,7 +51,8 @@ export async function fetchSeoulLivingPopulation(input: {
     return base("not_configured", "서울 생활인구 API 인증키 연결이 필요합니다.");
   }
 
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(input.date || "") ? input.date! : defaultLivingPopulationDate();
+  const requestedDate = /^\d{4}-\d{2}-\d{2}$/.test(input.date || "") ? input.date! : defaultLivingPopulationDate();
+  const date = requestedDate > LEGACY_LAST_DATE ? LEGACY_LAST_DATE : requestedDate;
   const requestedHour = Number(input.hour);
   const hour = Number.isFinite(requestedHour) ? Math.max(0, Math.min(23, Math.trunc(requestedHour))) : 12;
   const ymd = date.replaceAll("-", "");
@@ -72,7 +75,7 @@ export async function fetchSeoulLivingPopulation(input: {
     const male = MALE_FIELDS.reduce((sum, field) => sum + parseProtectedNumber(row[field]), 0);
     const female = FEMALE_FIELDS.reduce((sum, field) => sum + parseProtectedNumber(row[field]), 0);
     return {
-      ...base("available", "서울시 행정동 단위 생활인구입니다."),
+      ...base("available", requestedDate === date ? "서울시 행정동 단위 생활인구입니다." : `기존 행정동 데이터 생산 종료로 마지막 제공일(${LEGACY_LAST_DATE}) 자료를 표시합니다.`),
       referenceDate: `${row.YMD.slice(0, 4)}-${row.YMD.slice(4, 6)}-${row.YMD.slice(6, 8)}`,
       hour: Number(row.TT),
       administrativeCode,

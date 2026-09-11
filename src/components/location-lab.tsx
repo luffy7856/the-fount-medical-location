@@ -259,7 +259,8 @@ function CompetitorPanel({ analysis, selected, onSelect }: { analysis: LocationA
 function ForecastPanel({ analysis }: { analysis: LocationAnalysis }) {
   const forecast = analysis.growthForecast;
   if (!forecast || forecast.status !== "available") {
-    return <div className="panel-content"><div className="section-intro"><span>DATA CONNECTION</span><h2>3년 전망 데이터 준비</h2><p>가상의 전망 수치는 표시하지 않습니다.</p></div><div className="honest-placeholder"><BarChart3 /><h3>연도별 SGIS 통계가 필요합니다</h3><p>{forecast?.message || "해당 위치의 최근 연도별 인구·종사자·사업체 통계를 불러오지 못했습니다."}</p><ul><li>신규 아파트 입주와 주택 공급</li><li>재개발·재건축·신축건물</li><li>교통망 개통 계획</li><li>의료기관 개폐업 추세</li></ul></div></div>;
+    const plans = analysis.developmentPlans?.status === "available" ? analysis.developmentPlans.plans : [];
+    return <div className="panel-content"><div className="section-intro"><span>DATA CONNECTION</span><h2>3년 전망 데이터 준비</h2><p>가상의 전망 수치는 표시하지 않습니다.</p></div><div className="honest-placeholder"><BarChart3 /><h3>연도별 SGIS 통계가 필요합니다</h3><p>{forecast?.message || "해당 위치의 최근 연도별 인구·종사자·사업체 통계를 불러오지 못했습니다."}</p><ul><li>신규 아파트 입주와 주택 공급</li><li>재개발·재건축·신축건물</li><li>교통망 개통 계획</li><li>의료기관 개폐업 추세</li></ul></div>{plans.length > 0 && <section className="development-list"><h3>현재 확인 가능한 공개 개발계획</h3>{plans.slice(0, 8).map(plan => <article key={plan.id}><Building2 /><div><b>{plan.name}</b><span>{plan.category} · {plan.status}{plan.targetDate ? ` · ${plan.targetDate}` : ""}</span></div><em>{plan.distanceMeters !== undefined ? `${plan.distanceMeters.toLocaleString()}m` : "공개자료"}</em></article>)}</section>}</div>;
   }
   const base = forecast.historical.at(-1)!;
   const trendLabel = (value: number) => value > .05 ? `+${value}%` : `${value}%`;

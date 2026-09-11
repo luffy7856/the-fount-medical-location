@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { GrowthForecast, GrowthForecastPoint, LivingPopulation, LocationAnalysis, LivePlace, LivePlaceKind } from "@/data/location-types";
+import type { DataConnection, GrowthForecast, GrowthForecastPoint, LivingPopulation, LocationAnalysis, LivePlace, LivePlaceKind } from "@/data/location-types";
 import { specialties, type Specialty } from "@/data/specialties";
 import { fetchSeoulLivingPopulation } from "@/providers/seoul-living-population";
 import { fetchExternalLocationData, type ExternalLocationData } from "@/providers/external-location-data";
@@ -122,6 +122,14 @@ async function reverseOsm(latitude: number, longitude: number) {
 type Demographics = NonNullable<LocationAnalysis["demographics"]>;
 type SgisResult = { demographics?: Demographics; growthForecast?: GrowthForecast };
 
+function unavailableGrowthForecast(status: "not_configured" | "insufficient_data" | "error", areaName: string, message: string): GrowthForecast {
+  return {
+    status, source: "SGIS", model: "최근 3개년 선형 추세 외삽", areaName, baseYear: 0,
+    forecastYears: [], historical: [], projected: [],
+    annualChange: { residentPopulation: 0, workerPopulation: 0, businesses: 0 }, message
+  };
+}
+
 function buildGrowthForecast(history: GrowthForecastPoint[], areaName: string): GrowthForecast {
   const sorted = [...history].sort((a, b) => a.year - b.year);
   const first = sorted[0];
@@ -169,7 +177,7 @@ function buildGrowthForecast(history: GrowthForecastPoint[], areaName: string): 
 async function fetchSgisDemographics(address: string): Promise<SgisResult> {
   const consumerKey = process.env.SGIS_CONSUMER_KEY;
   const consumerSecret = process.env.SGIS_CONSUMER_SECRET;
-  if (!consumerKey || !consumerSecret) return {};
+  if (!consumerKey || !consumerSecret) return { growthForecast: unavailableGrowthForecast("not_configured", address, "SGIS 승인키가 연결되지 않아 연도별 통계를 조회할 수 없습니다.") };
   try {
     const authUrl = new URL("https://sgisapi.mods.go.kr/OpenAPI3/auth/authentication.json");
     authUrl.searchParams.set("consumer_key", consumerKey);
@@ -177,7 +185,7 @@ async function fetchSgisDemographics(address: string): Promise<SgisResult> {
     const authResponse = await fetch(authUrl, { cache: "no-store", signal: AbortSignal.timeout(7000) });
     const auth = authResponse.ok ? await authResponse.json() : null;
     const accessToken = auth?.result?.accessToken;
-    if (!accessToken) return {};
+    if (!accessToken) return { growthForecast: unavailableGrowthForecast("error", address, "SGIS 인증 응답을 확인하지 못했습니다.") };
 
     const geocodeUrl = new URL("https://sgisapi.mods.go.kr/OpenAPI3/addr/geocode.json");
     geocodeUrl.searchParams.set("accessToken", accessToken);
@@ -187,7 +195,7 @@ async function fetchSgisDemographics(address: string): Promise<SgisResult> {
     const geocode = geocodeResponse.ok ? await geocodeResponse.json() : null;
     const matched = geocode?.result?.resultdata?.[0];
     const administrativeCode = String(matched?.adm_cd || "").slice(0, 8);
-    if (administrativeCode.length < 5) return {};
+    if (administrativeCode.length < 5) return { growthForecast: unavailableGrowthForecast("error", address, "SGIS에서 선택 위치의 행정구역 코드를 찾지 못했습니다.") };
 
     const makeStatsUrl = (path: string, year: number) => {
       const url = new URL(`https://sgisapi.mods.go.kr/OpenAPI3/stats/${path}.json`);
@@ -198,22 +206,25 @@ async function fetchSgisDemographics(address: string): Promise<SgisResult> {
       return url;
     };
     const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
-    const years = [2022, 2023, 2024];
+    const currentYear = new Date().getFullYear();
+    const years = Array.from({ length: 6 }, (_, index) => currentYear - 1 - index).sort((a, b) => a - b);
     const snapshots = await Promise.all(years.map(async year => {
-      const [populationResponse, companyResponse] = await Promise.all([
+      const [populationResult, companyResult] = await Promise.allSettled([
         fetch(makeStatsUrl("population", year), { cache: "no-store", signal: AbortSignal.timeout(7000) }),
         fetch(makeStatsUrl("company", year), { cache: "no-store", signal: AbortSignal.timeout(7000) })
       ]);
-      const populationData = populationResponse.ok ? await populationResponse.json() : null;
-      const companyData = companyResponse.ok ? await companyResponse.json() : null;
+      const populationResponse = populationResult.status === "fulfilled" ? populationResult.value : null;
+      const companyResponse = companyResult.status === "fulfilled" ? companyResult.value : null;
+      const populationData = populationResponse?.ok ? await populationResponse.json().catch(() => null) : null;
+      const companyData = companyResponse?.ok ? await companyResponse.json().catch(() => null) : null;
       const population = populationData?.result?.[0];
       const company = companyData?.result?.[0];
       if (!population && !company) return undefined;
       return { year, population, company };
     }));
-    const available = snapshots.filter((item): item is NonNullable<typeof item> => Boolean(item));
+    const available = snapshots.filter((item): item is NonNullable<typeof item> => Boolean(item)).slice(-3);
     const latest = available.at(-1);
-    if (!latest) return {};
+    if (!latest) return { growthForecast: unavailableGrowthForecast("insufficient_data", address, "최근 6개년 SGIS 통계에서 전망 계산에 사용할 자료를 찾지 못했습니다.") };
     const { population, company, year } = latest;
     const areaName = population?.adm_nm || company?.adm_nm || matched?.adm_nm || matched?.sgg_nm || "선택 행정구역";
     const demographics: Demographics = {
@@ -236,7 +247,7 @@ async function fetchSgisDemographics(address: string): Promise<SgisResult> {
     })).filter(item => item.residentPopulation > 0 || item.workerPopulation > 0 || item.businesses > 0);
     return { demographics, growthForecast: buildGrowthForecast(history, areaName) };
   } catch {
-    return {};
+    return { growthForecast: unavailableGrowthForecast("error", address, "SGIS 연결이 지연되어 3년 전망을 계산하지 못했습니다.") };
   }
 }
 
@@ -545,6 +556,24 @@ export async function POST(request: NextRequest) {
       }),
       fetchExternalLocationData({ latitude, longitude, radiusMeters, administrativeCode, specialty })
     ]);
+    const sgisConnectionStatus: DataConnection["status"] = sgis.growthForecast?.status === "available"
+      ? "available"
+      : sgis.growthForecast?.status === "not_configured" ? "not_configured"
+        : sgis.growthForecast?.status === "error" ? "error" : "no_data";
+    const sgisConnection: DataConnection = {
+      id: "sgis", label: "SGIS 인구·3년 전망", status: sgisConnectionStatus, source: "SGIS",
+      message: sgis.growthForecast?.message || "SGIS 연도별 통계를 불러오지 못했습니다.",
+      requiredEnvironmentVariables: ["SGIS_CONSUMER_KEY", "SGIS_CONSUMER_SECRET"],
+      setupUrl: "https://sgis.kostat.go.kr/developer/html/index.html", referenceDate: sgis.demographics ? String(sgis.demographics.year) : undefined,
+      spatialUnit: "행정동"
+    };
+    const livingConnection: DataConnection = {
+      id: "living", label: "서울 생활인구", status: livingPopulation.status, source: livingPopulation.source,
+      message: livingPopulation.message, requiredEnvironmentVariables: ["SEOUL_OPEN_DATA_API_KEY"],
+      setupUrl: "https://data.seoul.go.kr/dataList/OA-23019/S/1/datasetView.do",
+      referenceDate: livingPopulation.referenceDate, spatialUnit: livingPopulation.spatialUnit
+    };
+    externalData.dataConnections = [sgisConnection, livingConnection, ...externalData.dataConnections];
     const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, sgis.demographics, livingPopulation, sgis.growthForecast, externalData);
     return NextResponse.json({ ...analysis, needsClientFetch, osmQuery: needsClientFetch ? buildOsmQuery(latitude, longitude, radiusMeters) : undefined });
   } catch (error) {

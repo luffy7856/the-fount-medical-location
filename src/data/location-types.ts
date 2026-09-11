@@ -26,7 +26,7 @@ export type LivingPopulationStatus = "available" | "not_configured" | "unsupport
 export type LivingPopulation = {
   status: LivingPopulationStatus;
   source: "서울특별시 서울 생활인구";
-  dataset: "Spop250mLocalResdDong";
+  dataset: "Spop250mLocalResdDong" | "SPOP_DAILYSUM_JACHI_250";
   spatialUnit: "행정동";
   supportedRegion: "서울특별시";
   referenceDate?: string;
@@ -47,7 +47,7 @@ export type GrowthForecastPoint = {
 };
 
 export type GrowthForecast = {
-  status: "available" | "insufficient_data";
+  status: "available" | "insufficient_data" | "not_configured" | "error";
   source: "SGIS";
   model: "최근 3개년 선형 추세 외삽";
   areaName: string;
@@ -67,7 +67,7 @@ export type GrowthForecast = {
 export type ExternalDataStatus = "available" | "not_configured" | "unsupported" | "no_data" | "error";
 
 export type DataConnection = {
-  id: "hira" | "consumer" | "rent" | "development";
+  id: "sgis" | "living" | "hira" | "consumer" | "rent" | "development";
   label: string;
   status: ExternalDataStatus;
   source: string;
