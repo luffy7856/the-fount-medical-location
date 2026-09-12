@@ -135,7 +135,21 @@ export async function POST(request: Request) {
     return Response.json(interpretation, {
       headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" }
     });
-  } catch {
-    return fallback(analysis, "error", "AI 연결이 일시적으로 불안정해 동일 데이터의 규칙 기반 해석을 표시합니다.");
+  } catch (error) {
+    const gatewayError = error as { name?: string; message?: string; statusCode?: number };
+    const statusCode = Number(gatewayError.statusCode || 0);
+    console.warn("[ai-insight] gateway fallback", {
+      name: gatewayError.name || "UnknownError",
+      statusCode: statusCode || undefined,
+      message: (gatewayError.message || "Unknown AI Gateway error").slice(0, 240)
+    });
+    const configurationIssue = [401, 402, 403].includes(statusCode);
+    return fallback(
+      analysis,
+      configurationIssue ? "not_configured" : "error",
+      configurationIssue
+        ? "AI Gateway 사용 설정을 확인하는 동안 동일 데이터의 규칙 기반 해석을 표시합니다."
+        : "AI 연결이 일시적으로 불안정해 동일 데이터의 규칙 기반 해석을 표시합니다."
+    );
   }
 }
