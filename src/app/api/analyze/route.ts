@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { LocationAnalysis, LivePlace, LivePlaceKind } from "@/data/location-types";
+import type { DataConnection, GrowthForecast, GrowthForecastPoint, LivingPopulation, LocationAnalysis, LivePlace, LivePlaceKind } from "@/data/location-types";
 import { specialties, type Specialty } from "@/data/specialties";
+import { fetchSeoulLivingPopulation } from "@/providers/seoul-living-population";
+import { fetchExternalLocationData, type ExternalLocationData } from "@/providers/external-location-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,6 +74,20 @@ async function reverseKakao(latitude: number, longitude: number, key: string) {
   return item?.road_address?.address_name || item?.address?.address_name || reverseOsm(latitude, longitude);
 }
 
+async function administrativeDongCodeKakao(latitude: number, longitude: number, key: string) {
+  try {
+    const url = new URL("https://dapi.kakao.com/v2/local/geo/coord2regioncode.json");
+    url.searchParams.set("x", String(longitude));
+    url.searchParams.set("y", String(latitude));
+    const response = await fetch(url, { headers: { Authorization: `KakaoAK ${key}` }, cache: "no-store", signal: AbortSignal.timeout(7000) });
+    const data = response.ok ? await response.json() : null;
+    const administrativeDong = data?.documents?.find((item: { region_type?: string }) => item.region_type === "H");
+    return typeof administrativeDong?.code === "string" ? administrativeDong.code.slice(0, 8) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function geocodeOsm(address: string) {
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("q", address);
@@ -104,148 +120,64 @@ async function reverseOsm(latitude: number, longitude: number) {
 }
 
 type Demographics = NonNullable<LocationAnalysis["demographics"]>;
-type SeoulRealtime = NonNullable<LocationAnalysis["seoulRealtime"]>;
+type SgisResult = { demographics?: Demographics; growthForecast?: GrowthForecast };
 
-const SEOUL_STATION_HOTSPOTS: Array<{ code: string; name: string; aliases: string[] }> = [
-  { code: "POI013", name: "가산디지털단지역", aliases: ["가산디지털단지"] },
-  { code: "POI014", name: "강남역", aliases: ["강남역"] },
-  { code: "POI015", name: "건대입구역", aliases: ["건대입구"] },
-  { code: "POI016", name: "고덕역", aliases: ["고덕역"] },
-  { code: "POI017", name: "고속터미널역", aliases: ["고속터미널"] },
-  { code: "POI018", name: "교대역", aliases: ["교대역"] },
-  { code: "POI019", name: "구로디지털단지역", aliases: ["구로디지털단지"] },
-  { code: "POI020", name: "구로역", aliases: ["구로역"] },
-  { code: "POI021", name: "군자역", aliases: ["군자역"] },
-  { code: "POI023", name: "대림역", aliases: ["대림역"] },
-  { code: "POI024", name: "동대문역", aliases: ["동대문역"] },
-  { code: "POI025", name: "뚝섬역", aliases: ["뚝섬역"] },
-  { code: "POI026", name: "미아사거리역", aliases: ["미아사거리"] },
-  { code: "POI027", name: "발산역", aliases: ["발산역"] },
-  { code: "POI029", name: "사당역", aliases: ["사당역"] },
-  { code: "POI030", name: "삼각지역", aliases: ["삼각지역"] },
-  { code: "POI031", name: "서울대입구역", aliases: ["서울대입구"] },
-  { code: "POI032", name: "서울식물원·마곡나루역", aliases: ["마곡나루"] },
-  { code: "POI033", name: "서울역", aliases: ["서울역"] },
-  { code: "POI034", name: "선릉역", aliases: ["선릉역"] },
-  { code: "POI035", name: "성신여대입구역", aliases: ["성신여대입구"] },
-  { code: "POI036", name: "수유역", aliases: ["수유역"] },
-  { code: "POI037", name: "신논현역·논현역", aliases: ["신논현", "논현역"] },
-  { code: "POI038", name: "신도림역", aliases: ["신도림"] },
-  { code: "POI039", name: "신림역", aliases: ["신림역"] },
-  { code: "POI040", name: "신촌·이대역", aliases: ["신촌역", "이대역"] },
-  { code: "POI041", name: "양재역", aliases: ["양재역"] },
-  { code: "POI042", name: "역삼역", aliases: ["역삼역"] },
-  { code: "POI043", name: "연신내역", aliases: ["연신내"] },
-  { code: "POI044", name: "오목교역·목동운동장", aliases: ["오목교"] },
-  { code: "POI045", name: "왕십리역", aliases: ["왕십리"] },
-  { code: "POI046", name: "용산역", aliases: ["용산역"] },
-  { code: "POI047", name: "이태원역", aliases: ["이태원역"] },
-  { code: "POI048", name: "장지역", aliases: ["장지역"] },
-  { code: "POI049", name: "장한평역", aliases: ["장한평"] },
-  { code: "POI050", name: "천호역", aliases: ["천호역"] },
-  { code: "POI051", name: "총신대입구(이수)역", aliases: ["총신대입구", "이수역"] },
-  { code: "POI052", name: "충정로역", aliases: ["충정로"] },
-  { code: "POI053", name: "합정역", aliases: ["합정역"] },
-  { code: "POI054", name: "혜화역", aliases: ["혜화역"] },
-  { code: "POI055", name: "홍대입구역(2호선)", aliases: ["홍대입구"] },
-  { code: "POI056", name: "회기역", aliases: ["회기역"] },
-  { code: "POI117", name: "신정네거리역", aliases: ["신정네거리"] },
-  { code: "POI118", name: "잠실새내역", aliases: ["잠실새내"] },
-  { code: "POI119", name: "잠실역", aliases: ["잠실역"] }
-];
-
-const SEOUL_AREA_HOTSPOTS: Array<{ code: string; name: string; aliases: string[] }> = [
-  { code: "POI001", name: "강남 MICE 관광특구", aliases: ["코엑스", "삼성동"] },
-  { code: "POI058", name: "가락시장", aliases: ["가락시장"] },
-  { code: "POI059", name: "가로수길", aliases: ["가로수길", "신사동"] },
-  { code: "POI063", name: "노량진", aliases: ["노량진"] },
-  { code: "POI068", name: "성수카페거리", aliases: ["성수동", "성수카페거리"] },
-  { code: "POI071", name: "압구정로데오거리", aliases: ["압구정로데오", "압구정동"] },
-  { code: "POI072", name: "여의도", aliases: ["여의도"] },
-  { code: "POI073", name: "연남동", aliases: ["연남동"] },
-  { code: "POI074", name: "영등포 타임스퀘어", aliases: ["영등포", "타임스퀘어"] },
-  { code: "POI080", name: "청담동 명품거리", aliases: ["청담동"] },
-  { code: "POI084", name: "DMC(디지털미디어시티)", aliases: ["디지털미디어시티", "상암동"] },
-  { code: "POI120", name: "잠실롯데타워·석촌호수", aliases: ["롯데타워", "석촌호수"] }
-];
-
-function resolveSeoulHotspot(displayName: string, places: LivePlace[]) {
-  const direct = SEOUL_AREA_HOTSPOTS.find(area => area.aliases.some(alias => displayName.includes(alias)));
-  if (direct) return { ...direct, latitude: undefined, longitude: undefined, distanceMeters: 0 };
-  const transit = places.filter(place => place.kind === "transit").sort((a, b) => a.distanceMeters - b.distanceMeters);
-  for (const place of transit) {
-    const hotspot = SEOUL_STATION_HOTSPOTS.find(item => item.aliases.some(alias => place.name.includes(alias)));
-    if (hotspot && place.distanceMeters <= 3000) {
-      return { ...hotspot, latitude: place.latitude, longitude: place.longitude, distanceMeters: place.distanceMeters };
-    }
-  }
-  const addressStation = SEOUL_STATION_HOTSPOTS.find(item => item.aliases.some(alias => displayName.includes(alias)));
-  return addressStation ? { ...addressStation, latitude: undefined, longitude: undefined, distanceMeters: 0 } : undefined;
+function unavailableGrowthForecast(status: "not_configured" | "insufficient_data" | "error", areaName: string, message: string): GrowthForecast {
+  return {
+    status, source: "SGIS", model: "최근 3개년 선형 추세 외삽", areaName, baseYear: 0,
+    forecastYears: [], historical: [], projected: [],
+    annualChange: { residentPopulation: 0, workerPopulation: 0, businesses: 0 }, message
+  };
 }
 
-function commerceScore(level: string) {
-  if (/피크|매우|활발/.test(level)) return 92;
-  if (/바쁜|붐빔/.test(level)) return 82;
-  if (/보통/.test(level)) return 68;
-  if (/한산|여유/.test(level)) return 48;
-  return 60;
+function buildGrowthForecast(history: GrowthForecastPoint[], areaName: string): GrowthForecast {
+  const sorted = [...history].sort((a, b) => a.year - b.year);
+  const first = sorted[0];
+  const last = sorted.at(-1)!;
+  const span = Math.max(1, last.year - first.year);
+  const slope = {
+    residentPopulation: (last.residentPopulation - first.residentPopulation) / span,
+    workerPopulation: (last.workerPopulation - first.workerPopulation) / span,
+    businesses: (last.businesses - first.businesses) / span
+  };
+  const currentYear = new Date().getFullYear();
+  const forecastYears = [currentYear + 1, currentYear + 2, currentYear + 3];
+  const project = (value: number, change: number, year: number) => Math.max(0, Math.round(value + change * (year - last.year)));
+  const projected = forecastYears.map(year => ({
+    year,
+    kind: "projected" as const,
+    residentPopulation: project(last.residentPopulation, slope.residentPopulation, year),
+    workerPopulation: project(last.workerPopulation, slope.workerPopulation, year),
+    businesses: project(last.businesses, slope.businesses, year)
+  }));
+  const percent = (change: number, base: number) => base > 0 ? Math.round(change / base * 1000) / 10 : 0;
+  const annualChange = {
+    residentPopulation: percent(slope.residentPopulation, last.residentPopulation),
+    workerPopulation: percent(slope.workerPopulation, last.workerPopulation),
+    businesses: percent(slope.businesses, last.businesses)
+  };
+  const combinedChange = annualChange.residentPopulation * .4 + annualChange.workerPopulation * .35 + annualChange.businesses * .25;
+  return {
+    status: sorted.length >= 2 ? "available" : "insufficient_data",
+    source: "SGIS",
+    model: "최근 3개년 선형 추세 외삽",
+    areaName,
+    baseYear: last.year,
+    forecastYears,
+    historical: sorted,
+    projected,
+    annualChange,
+    growthScore: sorted.length >= 2 ? clamp(50 + combinedChange * 6, 10, 90) : undefined,
+    message: sorted.length >= 2
+      ? `SGIS ${first.year}~${last.year}년 행정동 통계의 연간 변화량을 ${forecastYears[0]}~${forecastYears[2]}년에 선형 적용한 추정치입니다.`
+      : "연도별 SGIS 통계가 부족해 3년 전망을 계산할 수 없습니다."
+  };
 }
 
-async function fetchSeoulRealtime(displayName: string, latitude: number, longitude: number, places: LivePlace[]): Promise<SeoulRealtime | undefined> {
-  const key = process.env.SEOUL_OPEN_DATA_API_KEY;
-  if (!key || !displayName.includes("서울")) return undefined;
-  const hotspot = resolveSeoulHotspot(displayName, places);
-  if (!hotspot) return undefined;
-  try {
-    const endpoint = (service: string) => `http://openapi.seoul.go.kr:8088/${encodeURIComponent(key)}/json/${service}/1/5/${hotspot.code}`;
-    const [populationResponse, commerceResponse] = await Promise.all([
-      fetch(endpoint("citydata_ppltn"), { cache: "no-store", signal: AbortSignal.timeout(8000) }),
-      fetch(endpoint("citydata_cmrcl"), { cache: "no-store", signal: AbortSignal.timeout(8000) })
-    ]);
-    const populationData = populationResponse.ok ? await populationResponse.json() : null;
-    const commerceData = commerceResponse.ok ? await commerceResponse.json() : null;
-    const population = populationData?.["SeoulRtd.citydata_ppltn"]?.[0];
-    if (!population || !Number.isFinite(Number(population.AREA_PPLTN_MIN))) return undefined;
-    const commerce = commerceData?.LIVE_CMRCL_STTS;
-    const anchorLatitude = Number.isFinite(hotspot.latitude) ? Number(hotspot.latitude) : latitude;
-    const anchorLongitude = Number.isFinite(hotspot.longitude) ? Number(hotspot.longitude) : longitude;
-    const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
-    return {
-      source: "서울 실시간 도시데이터",
-      areaName: population.AREA_NM || hotspot.name,
-      areaCode: population.AREA_CD || hotspot.code,
-      coverage: "서울 주요장소",
-      anchorLatitude,
-      anchorLongitude,
-      distanceMeters: hotspot.distanceMeters,
-      currentMin: number(population.AREA_PPLTN_MIN),
-      currentMax: number(population.AREA_PPLTN_MAX),
-      congestionLevel: population.AREA_CONGEST_LVL || "정보 없음",
-      congestionMessage: population.AREA_CONGEST_MSG || "",
-      measuredAt: population.PPLTN_TIME || "",
-      maleRate: number(population.MALE_PPLTN_RATE),
-      femaleRate: number(population.FEMALE_PPLTN_RATE),
-      residentRate: number(population.RESNT_PPLTN_RATE),
-      nonResidentRate: number(population.NON_RESNT_PPLTN_RATE),
-      ageRates: Object.fromEntries([0, 10, 20, 30, 40, 50, 60, 70].map(age => [`${age}대${age === 0 ? " 이하" : ""}`, number(population[`PPLTN_RATE_${age}`])])),
-      forecasts: (Array.isArray(population.FCST_PPLTN) ? population.FCST_PPLTN : []).slice(0, 8).map((item: Record<string, unknown>) => ({
-        time: String(item.FCST_TIME || ""), min: number(item.FCST_PPLTN_MIN), max: number(item.FCST_PPLTN_MAX), congestionLevel: String(item.FCST_CONGEST_LVL || "")
-      })),
-      commerce: commerce ? {
-        level: String(commerce.AREA_CMRCL_LVL || "정보 없음"),
-        measuredAt: String(commerce.CMRCL_TIME || ""),
-        paymentActivityIndex: Number.isFinite(Number(commerce.AREA_SH_PAYMENT_CNT)) ? Number(commerce.AREA_SH_PAYMENT_CNT) : null
-      } : undefined
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-async function fetchSgisDemographics(address: string): Promise<Demographics | undefined> {
+async function fetchSgisDemographics(address: string): Promise<SgisResult> {
   const consumerKey = process.env.SGIS_CONSUMER_KEY;
   const consumerSecret = process.env.SGIS_CONSUMER_SECRET;
-  if (!consumerKey || !consumerSecret) return undefined;
+  if (!consumerKey || !consumerSecret) return { growthForecast: unavailableGrowthForecast("not_configured", address, "SGIS 승인키가 연결되지 않아 연도별 통계를 조회할 수 없습니다.") };
   try {
     const authUrl = new URL("https://sgisapi.mods.go.kr/OpenAPI3/auth/authentication.json");
     authUrl.searchParams.set("consumer_key", consumerKey);
@@ -253,7 +185,7 @@ async function fetchSgisDemographics(address: string): Promise<Demographics | un
     const authResponse = await fetch(authUrl, { cache: "no-store", signal: AbortSignal.timeout(7000) });
     const auth = authResponse.ok ? await authResponse.json() : null;
     const accessToken = auth?.result?.accessToken;
-    if (!accessToken) return undefined;
+    if (!accessToken) return { growthForecast: unavailableGrowthForecast("error", address, "SGIS 인증 응답을 확인하지 못했습니다.") };
 
     const geocodeUrl = new URL("https://sgisapi.mods.go.kr/OpenAPI3/addr/geocode.json");
     geocodeUrl.searchParams.set("accessToken", accessToken);
@@ -263,30 +195,42 @@ async function fetchSgisDemographics(address: string): Promise<Demographics | un
     const geocode = geocodeResponse.ok ? await geocodeResponse.json() : null;
     const matched = geocode?.result?.resultdata?.[0];
     const administrativeCode = String(matched?.adm_cd || "").slice(0, 8);
-    if (administrativeCode.length < 5) return undefined;
+    if (administrativeCode.length < 5) return { growthForecast: unavailableGrowthForecast("error", address, "SGIS에서 선택 위치의 행정구역 코드를 찾지 못했습니다.") };
 
-    const makeStatsUrl = (path: string) => {
+    const makeStatsUrl = (path: string, year: number) => {
       const url = new URL(`https://sgisapi.mods.go.kr/OpenAPI3/stats/${path}.json`);
       url.searchParams.set("accessToken", accessToken);
-      url.searchParams.set("year", "2024");
+      url.searchParams.set("year", String(year));
       url.searchParams.set("adm_cd", administrativeCode);
       url.searchParams.set("low_search", "0");
       return url;
     };
-    const [populationResponse, companyResponse] = await Promise.all([
-      fetch(makeStatsUrl("population"), { cache: "no-store", signal: AbortSignal.timeout(7000) }),
-      fetch(makeStatsUrl("company"), { cache: "no-store", signal: AbortSignal.timeout(7000) })
-    ]);
-    const populationData = populationResponse.ok ? await populationResponse.json() : null;
-    const companyData = companyResponse.ok ? await companyResponse.json() : null;
-    const population = populationData?.result?.[0];
-    const company = companyData?.result?.[0];
-    if (!population && !company) return undefined;
     const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
-    return {
+    const currentYear = new Date().getFullYear();
+    const years = Array.from({ length: 6 }, (_, index) => currentYear - 1 - index).sort((a, b) => a - b);
+    const snapshots = await Promise.all(years.map(async year => {
+      const [populationResult, companyResult] = await Promise.allSettled([
+        fetch(makeStatsUrl("population", year), { cache: "no-store", signal: AbortSignal.timeout(7000) }),
+        fetch(makeStatsUrl("company", year), { cache: "no-store", signal: AbortSignal.timeout(7000) })
+      ]);
+      const populationResponse = populationResult.status === "fulfilled" ? populationResult.value : null;
+      const companyResponse = companyResult.status === "fulfilled" ? companyResult.value : null;
+      const populationData = populationResponse?.ok ? await populationResponse.json().catch(() => null) : null;
+      const companyData = companyResponse?.ok ? await companyResponse.json().catch(() => null) : null;
+      const population = populationData?.result?.[0];
+      const company = companyData?.result?.[0];
+      if (!population && !company) return undefined;
+      return { year, population, company };
+    }));
+    const available = snapshots.filter((item): item is NonNullable<typeof item> => Boolean(item)).slice(-3);
+    const latest = available.at(-1);
+    if (!latest) return { growthForecast: unavailableGrowthForecast("insufficient_data", address, "최근 6개년 SGIS 통계에서 전망 계산에 사용할 자료를 찾지 못했습니다.") };
+    const { population, company, year } = latest;
+    const areaName = population?.adm_nm || company?.adm_nm || matched?.adm_nm || matched?.sgg_nm || "선택 행정구역";
+    const demographics: Demographics = {
       source: "SGIS",
-      year: 2024,
-      areaName: population?.adm_nm || company?.adm_nm || matched?.adm_nm || matched?.sgg_nm || "선택 행정구역",
+      year,
+      areaName,
       administrativeCode,
       residentPopulation: number(population?.tot_ppltn),
       workerPopulation: number(company?.tot_worker || population?.employee_cnt),
@@ -294,8 +238,16 @@ async function fetchSgisDemographics(address: string): Promise<Demographics | un
       businesses: number(company?.corp_cnt || population?.corp_cnt),
       averageAge: Number.isFinite(Number(population?.avg_age)) ? Number(population.avg_age) : null
     };
+    const history: GrowthForecastPoint[] = available.map(item => ({
+      year: item.year,
+      kind: "observed" as const,
+      residentPopulation: number(item.population?.tot_ppltn),
+      workerPopulation: number(item.company?.tot_worker || item.population?.employee_cnt),
+      businesses: number(item.company?.corp_cnt || item.population?.corp_cnt)
+    })).filter(item => item.residentPopulation > 0 || item.workerPopulation > 0 || item.businesses > 0);
+    return { demographics, growthForecast: buildGrowthForecast(history, areaName) };
   } catch {
-    return undefined;
+    return { growthForecast: unavailableGrowthForecast("error", address, "SGIS 연결이 지연되어 3년 전망을 계산하지 못했습니다.") };
   }
 }
 
@@ -459,7 +411,7 @@ async function fetchOsmPlaces(latitude: number, longitude: number, radius: numbe
   return normalizeOsmElements(data.elements || [], latitude, longitude);
 }
 
-function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"], demographics?: Demographics, seoulRealtime?: SeoulRealtime): LocationAnalysis {
+function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string, latitude: number, longitude: number, specialty: Specialty, radiusMeters: number, places: LivePlace[], providerTotals?: LocationAnalysis["counts"], countLimits?: LocationAnalysis["countLimits"], demographics?: Demographics, livingPopulation?: LivingPopulation, growthForecast?: GrowthForecast, externalData?: ExternalLocationData): LocationAnalysis {
   const medical = places.filter(place => place.kind === "hospital");
   const matching = medical.filter(place => matchesSpecialty(place.name, place.specialty, specialty));
   const displayedCounts = {
@@ -469,46 +421,89 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     transit: places.filter(place => place.kind === "transit").length,
     parking: places.filter(place => place.kind === "parking").length
   };
-  const counts = providerTotals || displayedCounts;
+  const kakaoCounts = providerTotals || displayedCounts;
+  const official = externalData?.hiraMedical.status === "available" ? externalData.hiraMedical : undefined;
+  const counts = {
+    ...kakaoCounts,
+    medical: official?.medicalCount ?? kakaoCounts.medical,
+    matchingSpecialty: official?.matchingSpecialtyCount ?? kakaoCounts.matchingSpecialty,
+    pharmacy: official?.pharmacyCount ?? kakaoCounts.pharmacy
+  };
+  const effectiveCountLimits = official ? {
+    medical: false,
+    matchingSpecialty: official.matchingSpecialtyCount === undefined ? Boolean(countLimits?.matchingSpecialty) : false,
+    pharmacy: official.pharmacyCount === undefined ? Boolean(countLimits?.pharmacy) : false,
+    transit: Boolean(countLimits?.transit),
+    parking: Boolean(countLimits?.parking),
+  } : countLimits;
   const { pharmacy, transit, parking } = counts;
   const densityFactor = radiusMeters <= 500 ? 6 : radiusMeters <= 1000 ? 4 : 2;
   const competitionBase = clamp(94 - (counts.matchingSpecialty || counts.medical * .35) * densityFactor);
   const competition = provider === "openstreetmap" && counts.matchingSpecialty === 0 ? Math.min(72, competitionBase) : competitionBase;
   const access = clamp(42 + Math.min(transit, 14) * 3 + Math.min(parking, 8) * 2 + Math.min(pharmacy, 10), 0, 92);
-  const demand = demographics ? clamp(38 + (demographics.residentPopulation + demographics.workerPopulation * .55) / 1600) : null;
-  const consumer = seoulRealtime?.commerce ? commerceScore(seoulRealtime.commerce.level) : null;
-  const scoreFactors = [competition, access, demand, consumer].filter((value): value is number => value !== null);
-  const observedScore = Math.round(scoreFactors.reduce((sum, value) => sum + value, 0) / scoreFactors.length);
-  const confidence = clamp((provider === "kakao" ? 66 : 42) + Math.min(places.length, 30) * .7 + (demographics ? 8 : 0) + (seoulRealtime ? 6 : 0) + (seoulRealtime?.commerce ? 3 : 0), 35, provider === "kakao" ? 97 : 80);
+  const demographicDemand = demographics ? clamp(38 + (demographics.residentPopulation + demographics.workerPopulation * .55) / 1600) : null;
+  const livingDemand = livingPopulation?.status === "available" && livingPopulation.total !== undefined ? clamp(35 + livingPopulation.total / 900) : null;
+  const demand = demographicDemand !== null && livingDemand !== null ? clamp(demographicDemand * .55 + livingDemand * .45) : demographicDemand ?? livingDemand;
+  const consumer = externalData?.consumerPower.status === "available" ? externalData.consumerPower.score ?? null : null;
+  const costEfficiency = externalData?.rentMarket.status === "available" ? externalData.rentMarket.score ?? null : null;
+  const historicGrowth = growthForecast?.growthScore ?? null;
+  const planGrowth = externalData?.developmentPlans.status === "available" ? externalData.developmentPlans.score ?? null : null;
+  const growth = historicGrowth !== null && planGrowth !== null ? clamp(historicGrowth * .65 + planGrowth * .35) : historicGrowth ?? planGrowth;
+  const weightedFactors = [
+    { value: demand, weight: 25 }, { value: competition, weight: 20 }, { value: consumer, weight: 15 },
+    { value: access, weight: 15 }, { value: costEfficiency, weight: 10 }, { value: growth, weight: 15 }
+  ].filter((factor): factor is { value: number; weight: number } => factor.value !== null);
+  const weightTotal = weightedFactors.reduce((sum, factor) => sum + factor.weight, 0);
+  const observedScore = weightTotal ? Math.round(weightedFactors.reduce((sum, factor) => sum + factor.value * factor.weight, 0) / weightTotal) : 0;
+  // 연결된 데이터 항목의 충족률입니다. 예측 정확도나 개원 성공확률이 아닙니다.
+  const confidence = Math.min(100,
+    (provider === "kakao" ? 5 : 3) +
+    (kakaoCounts.medical > 0 ? 5 : 0) +
+    (official ? 15 : 0) +
+    (demographics ? 12 : 0) +
+    (livingPopulation?.status === "available" ? 15 : 0) +
+    (consumer !== null ? 15 : 0) +
+    (transit > 0 || parking > 0 ? 8 : 0) +
+    (costEfficiency !== null ? 10 : 0) +
+    (growthForecast?.status === "available" ? 5 : 0) +
+    (planGrowth !== null ? 10 : 0)
+  );
   const grade = observedScore >= 85 ? "A" : observedScore >= 75 ? "B+" : observedScore >= 65 ? "B" : "C";
   const metrics = [
-    { label: "잠재환자 수요", value: demand, note: demographics ? `${demographics.areaName} 인구·종사자` : "인구 데이터 연동 필요", color: COLORS[0] },
-    { label: "경쟁환경", value: competition, note: `동일 진료과 검색 ${counts.matchingSpecialty}곳`, color: COLORS[1] },
-    { label: "소비력", value: consumer, note: seoulRealtime?.commerce ? `${seoulRealtime.areaName} 상권 활력 ${seoulRealtime.commerce.level}` : "소비 데이터 연동 필요", color: COLORS[2] },
+    { label: "잠재환자 수요", value: demand, note: livingPopulation?.status === "available" ? `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 생활인구 반영` : demographics ? `${demographics.areaName} 인구·종사자` : "인구 데이터 연동 필요", color: COLORS[0] },
+    { label: "경쟁환경", value: competition, note: `동일 진료과 ${official?.matchingSpecialtyCount !== undefined ? "HIRA 공식" : "검색"} ${counts.matchingSpecialty}곳`, color: COLORS[1] },
+    { label: "소비력", value: consumer, note: consumer !== null ? `소비 ${externalData?.consumerPower.percentile}% · 의료비 ${externalData?.consumerPower.medicalPercentile !== undefined ? `${externalData.consumerPower.medicalPercentile}%` : "자료 없음"} 백분위` : externalData?.consumerPower.message || "소비 데이터 연동 필요", color: COLORS[2] },
     { label: "접근성", value: access, note: `지하철역 ${transit} · 주차 ${parking}`, color: COLORS[3] },
-    { label: "비용효율", value: null, note: "임대료 데이터 연동 필요", color: COLORS[4] },
-    { label: "성장성", value: null, note: "개발계획 데이터 연동 필요", color: COLORS[5] }
+    { label: "비용효율", value: costEfficiency, note: costEfficiency !== null ? `평당 월세 중앙값 ${externalData?.rentMarket.monthlyRentPerPyeongManwon?.toLocaleString()}만원` : externalData?.rentMarket.message || "임대료 데이터 연동 필요", color: COLORS[4] },
+    { label: "성장성", value: growth, note: planGrowth !== null ? `SGIS 추세 + 개발계획 ${externalData?.developmentPlans.plans.length}건` : growthForecast?.status === "available" ? `SGIS ${growthForecast.historical[0]?.year}~${growthForecast.baseYear}년 추세 기반` : externalData?.developmentPlans.message || "개발계획 데이터 연동 필요", color: COLORS[5] }
   ];
   const strengths = [
-    demographics ? `${demographics.areaName} 거주인구 ${demographics.residentPopulation.toLocaleString()}명 · 종사자 ${demographics.workerPopulation.toLocaleString()}명` : "주변 의료기관을 실제 지도에서 확인 가능",
+    livingPopulation?.status === "available" ? `${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 ${livingPopulation.spatialUnit} 생활인구 ${livingPopulation.total?.toLocaleString()}명` : demographics ? `${demographics.areaName} 거주인구 ${demographics.residentPopulation.toLocaleString()}명 · 종사자 ${demographics.workerPopulation.toLocaleString()}명` : "주변 의료기관을 실제 지도에서 확인 가능",
     transit >= 2 ? `반경 내 지하철역 검색 ${transit}곳` : "주변 의료기관을 실제 지도에서 확인 가능",
     pharmacy >= 3 ? `주변 약국 ${pharmacy}곳으로 의료상권 형성` : `가까운 약국 ${pharmacy}곳 확인`,
     competition >= 75 ? `선택 진료과 표식 경쟁이 비교적 낮음` : "경쟁병원의 위치와 거리를 직접 확인 가능"
   ];
   const risks = [
     counts.matchingSpecialty >= 8 ? `선택 진료과 검색 ${counts.matchingSpecialty}곳으로 경쟁 주의` : "진료과 분류 누락 가능성 검토 필요",
-    demographics ? "SGIS 인구는 행정동 기준으로 반경 데이터와 범위가 다름" : "유동인구·소득·임대료는 아직 점수에 포함되지 않음",
+    livingPopulation?.status === "available" ? livingPopulation.spatialUnit === "250m 격자" ? "250m 격자도 건물·도로 단위 보행량을 뜻하지 않음" : "생활인구는 행정동 집계값으로 선택 반경과 범위가 다름" : demographics ? "SGIS 인구는 행정동 기준으로 반경 데이터와 범위가 다름" : "유동인구 데이터가 없어 수요 판단 범위가 제한됨",
     provider === "openstreetmap" ? "OpenStreetMap 등록 범위에 따라 누락 가능" : "공개 장소 데이터 기준으로 실제 운영정보 확인 필요"
   ];
   return {
     mode: "live", provider, analyzedAt: new Date().toISOString(),
     location: { displayName, latitude, longitude }, specialty, radiusMeters,
-    places, counts, displayedCounts, countLimits,
+    places, counts, displayedCounts, countLimits: effectiveCountLimits,
     metrics, observedScore, grade, confidence,
-    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}${countLimits?.medical ? "곳 이상" : "곳"}과 ${specialty} 관련 검색결과 ${counts.matchingSpecialty}${countLimits?.matchingSpecialty ? "곳 이상" : "곳"}을 확인했습니다.${demographics ? ` SGIS ${demographics.year}년 기준 ${demographics.areaName}의 거주인구는 ${demographics.residentPopulation.toLocaleString()}명, 종사자는 ${demographics.workerPopulation.toLocaleString()}명입니다.` : ""}${seoulRealtime ? ` 가장 가까운 서울 실시간 데이터 지원장소인 ${seoulRealtime.areaName}의 현재 인구는 ${seoulRealtime.currentMin.toLocaleString()}~${seoulRealtime.currentMax.toLocaleString()}명, 혼잡도는 ${seoulRealtime.congestionLevel}입니다.` : ""} 현재 점수는 연결된 공개 데이터만 반영한 베타 관측점수이며, 임대료·개폐업·개발계획 데이터가 모두 연결되기 전에는 개원 의사결정의 단독 근거로 사용하면 안 됩니다.`,
+    insight: `${displayName.split(",")[0]} 반경 ${radiusMeters.toLocaleString()}m에서 의료기관 ${counts.medical}곳과 ${specialty} 관련 ${counts.matchingSpecialty}곳을 확인했습니다.${official ? " 의료기관 수는 HIRA 신고 기준이며 지도 위치는 Kakao 장소검색을 사용합니다." : " 의료기관 수와 위치는 Kakao 장소검색 기준입니다."}${demographics ? ` SGIS ${demographics.year}년 기준 ${demographics.areaName}의 거주인구는 ${demographics.residentPopulation.toLocaleString()}명, 종사자는 ${demographics.workerPopulation.toLocaleString()}명입니다.` : ""}${livingPopulation?.status === "available" ? ` 서울시 ${livingPopulation.referenceDate} ${String(livingPopulation.hour).padStart(2, "0")}시 ${livingPopulation.spatialUnit} 생활인구 ${livingPopulation.total?.toLocaleString()}명을 수요지표에 반영했습니다.` : ""}${consumer !== null ? ` 소비력은 서울 행정동 소비총액 백분위 ${externalData?.consumerPower.percentile}%입니다.` : ""}${costEfficiency !== null ? ` 임대료 ${externalData?.rentMarket.sampleCount}개 표본의 비용효율을 반영했습니다.` : ""} 최종점수는 연결된 항목만 가중 평균한 베타 관측점수입니다.`,
     strengths, risks,
-    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다."],
-    demographics, seoulRealtime
+    limitations: ["공개 지도 데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다.", demographics ? "SGIS 인구·사업체 통계는 행정동 단위이며 선택 반경과 정확히 일치하지 않습니다." : "거주인구·매출·임대료·개폐업 데이터는 별도 공공데이터 인증키 연결 후 제공됩니다.", livingPopulation?.status === "available" ? livingPopulation.spatialUnit === "250m 격자" ? "서울 250m 생활인구는 통신 기반 추정인구이며 도로별 보행량이나 병원 방문자 수가 아닙니다." : "서울 생활인구 숫자는 행정동 실제 총계이며, 지도 격자의 공간분포와 밀도지수는 주변 시설 접근성을 이용한 추정입니다." : livingPopulation?.message || "서울 이외 지역의 시간대별 생활인구는 현재 지원하지 않습니다.", consumer !== null ? "서울시 소비 데이터는 행정동 집계값이며 병원별 실제 의료매출이나 환자 지출을 뜻하지 않습니다." : externalData?.consumerPower.message || "소비력 데이터가 연결되지 않았습니다."],
+    demographics,
+    livingPopulation,
+    growthForecast,
+    dataConnections: externalData?.dataConnections,
+    hiraMedical: externalData?.hiraMedical,
+    consumerPower: externalData?.consumerPower,
+    rentMarket: externalData?.rentMarket,
+    developmentPlans: externalData?.developmentPlans
   };
 }
 
@@ -548,11 +543,41 @@ export async function POST(request: NextRequest) {
       try { places = await fetchOsmPlaces(latitude, longitude, radiusMeters); }
       catch { needsClientFetch = true; }
     }
-    const [demographics, seoulRealtime] = await Promise.all([
+    const [sgis, kakaoAdministrativeCode] = await Promise.all([
       fetchSgisDemographics(displayName),
-      fetchSeoulRealtime(displayName, latitude, longitude, places)
+      kakaoKey ? administrativeDongCodeKakao(latitude, longitude, kakaoKey) : Promise.resolve(undefined)
     ]);
-    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, demographics, seoulRealtime);
+    const administrativeCode = kakaoAdministrativeCode || sgis.demographics?.administrativeCode;
+    const [livingPopulation, externalData] = await Promise.all([
+      fetchSeoulLivingPopulation({
+        administrativeCode,
+        date: typeof body.populationDate === "string" ? body.populationDate : undefined,
+        hour: Number(body.populationHour),
+        latitude,
+        longitude,
+        radiusMeters
+      }),
+      fetchExternalLocationData({ latitude, longitude, radiusMeters, administrativeCode, specialty })
+    ]);
+    const sgisConnectionStatus: DataConnection["status"] = sgis.growthForecast?.status === "available"
+      ? "available"
+      : sgis.growthForecast?.status === "not_configured" ? "not_configured"
+        : sgis.growthForecast?.status === "error" ? "error" : "no_data";
+    const sgisConnection: DataConnection = {
+      id: "sgis", label: "SGIS 인구·3년 전망", status: sgisConnectionStatus, source: "SGIS",
+      message: sgis.growthForecast?.message || "SGIS 연도별 통계를 불러오지 못했습니다.",
+      requiredEnvironmentVariables: ["SGIS_CONSUMER_KEY", "SGIS_CONSUMER_SECRET"],
+      setupUrl: "https://sgis.kostat.go.kr/developer/html/index.html", referenceDate: sgis.demographics ? String(sgis.demographics.year) : undefined,
+      spatialUnit: "행정동"
+    };
+    const livingConnection: DataConnection = {
+      id: "living", label: "서울 생활인구", status: livingPopulation.status, source: livingPopulation.source,
+      message: livingPopulation.message, requiredEnvironmentVariables: ["SEOUL_OPEN_DATA_API_KEY"],
+      setupUrl: "https://data.seoul.go.kr/dataList/OA-22784/S/1/datasetView.do",
+      referenceDate: livingPopulation.referenceDate, spatialUnit: livingPopulation.spatialUnit
+    };
+    externalData.dataConnections = [sgisConnection, livingConnection, ...externalData.dataConnections];
+    const analysis = buildAnalysis(kakaoKey ? "kakao" : "openstreetmap", displayName, latitude, longitude, specialty, radiusMeters, places, providerTotals, countLimits, sgis.demographics, livingPopulation, sgis.growthForecast, externalData);
     return NextResponse.json({ ...analysis, needsClientFetch, osmQuery: needsClientFetch ? buildOsmQuery(latitude, longitude, radiusMeters) : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";

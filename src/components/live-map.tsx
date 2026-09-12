@@ -1,10 +1,85 @@
 "use client";
 
-import { Circle, CircleMarker, MapContainer, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { Circle, CircleMarker, MapContainer, Popup, Rectangle, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import type { LocationAnalysis, LivePlace } from "@/data/location-types";
 import { useEffect } from "react";
 
 const COLORS = { hospital: "#e55e48", pharmacy: "#3182ce", transit: "#0f937d", parking: "#805ad5" };
+const POPULATION_COLORS = [
+  { max: 39, label: "낮음", color: "#3f8fe6" },
+  { max: 59, label: "보통", color: "#f3c94c" },
+  { max: 79, label: "높음", color: "#f28a32" },
+  { max: 100, label: "매우 높음", color: "#dc3f2f" }
+];
+
+function distanceMeters(latitude: number, longitude: number, targetLatitude: number, targetLongitude: number) {
+  const north = (targetLatitude - latitude) * 111320;
+  const east = (targetLongitude - longitude) * 111320 * Math.cos(latitude * Math.PI / 180);
+  return Math.sqrt(north ** 2 + east ** 2);
+}
+
+function populationGrid(analysis: LocationAnalysis) {
+  const actualCells = analysis.livingPopulation?.gridCells;
+  if (actualCells?.length) {
+    return actualCells.map(cell => {
+      const latitudeStep = 250 / 111320;
+      const longitudeStep = 250 / (111320 * Math.cos(cell.latitude * Math.PI / 180));
+      return {
+        row: cell.id,
+        column: "actual",
+        centerLatitude: cell.latitude,
+        centerLongitude: cell.longitude,
+        score: Math.round(cell.population),
+        population: cell.population,
+        actual: true,
+        category: POPULATION_COLORS[cell.band],
+        bounds: [
+          [cell.latitude - latitudeStep / 2, cell.longitude - longitudeStep / 2],
+          [cell.latitude + latitudeStep / 2, cell.longitude + longitudeStep / 2]
+        ] as [[number, number], [number, number]]
+      };
+    });
+  }
+  const total = analysis.livingPopulation?.total;
+  if (!total) return [];
+  const { latitude, longitude } = analysis.location;
+  const dimension = 5;
+  const extentMeters = Math.max(300, Math.min(analysis.radiusMeters, 1100));
+  const cellMeters = extentMeters * 2 / dimension;
+  const latitudeStep = cellMeters / 111320;
+  const longitudeStep = cellMeters / (111320 * Math.cos(latitude * Math.PI / 180));
+  const weights = { hospital: .7, pharmacy: 1.2, transit: 4.2, parking: .35 };
+  const cells = Array.from({ length: dimension * dimension }, (_, index) => {
+    const row = Math.floor(index / dimension);
+    const column = index % dimension;
+    const centerLatitude = latitude + (row - (dimension - 1) / 2) * latitudeStep;
+    const centerLongitude = longitude + (column - (dimension - 1) / 2) * longitudeStep;
+    const facilitySignal = analysis.places.reduce((sum, place) => {
+      const distance = distanceMeters(centerLatitude, centerLongitude, place.latitude, place.longitude);
+      return sum + weights[place.kind] * Math.exp(-distance / Math.max(180, cellMeters * .9));
+    }, 0);
+    return { row, column, centerLatitude, centerLongitude, raw: 1 + facilitySignal };
+  });
+  const minimum = Math.min(...cells.map(cell => cell.raw));
+  const maximum = Math.max(...cells.map(cell => cell.raw));
+  const populationLevel = Math.max(0, Math.min(1, (Math.log10(total) - 4) / 1.35));
+  return cells.map(cell => {
+    const relative = maximum > minimum ? (cell.raw - minimum) / (maximum - minimum) : .5;
+    const score = Math.max(0, Math.min(100, Math.round(12 + relative * 63 + populationLevel * 25)));
+    const category = POPULATION_COLORS.find(item => score <= item.max) || POPULATION_COLORS.at(-1)!;
+    return {
+      ...cell,
+      score,
+      population: undefined,
+      actual: false,
+      category,
+      bounds: [
+        [cell.centerLatitude - latitudeStep / 2, cell.centerLongitude - longitudeStep / 2],
+        [cell.centerLatitude + latitudeStep / 2, cell.centerLongitude + longitudeStep / 2]
+      ] as [[number, number], [number, number]]
+    };
+  });
+}
 
 function MapUpdater({ latitude, longitude, radius }: { latitude: number; longitude: number; radius: number }) {
   const map = useMap();
@@ -19,14 +94,17 @@ function MapClick({ onSelect }: { onSelect: (latitude: number, longitude: number
   return null;
 }
 
-export default function LiveMap({ analysis, activeKinds, selected, onPlace, onSelectCoordinate }: {
+export default function LiveMap({ analysis, activeKinds, populationActive, selected, onPlace, onSelectCoordinate }: {
   analysis: LocationAnalysis;
   activeKinds: Set<string>;
+  populationActive: boolean;
   selected: LivePlace | null;
   onPlace: (place: LivePlace) => void;
   onSelectCoordinate: (latitude: number, longitude: number) => void;
 }) {
   const { latitude, longitude } = analysis.location;
+  const livingPopulation = analysis.livingPopulation;
+  const densityCells = populationGrid(analysis);
   return <MapContainer center={[latitude, longitude]} zoom={15} className="leaflet-live-map" zoomControl={false} preferCanvas>
     <TileLayer
       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -34,15 +112,13 @@ export default function LiveMap({ analysis, activeKinds, selected, onPlace, onSe
     />
     <MapUpdater latitude={latitude} longitude={longitude} radius={analysis.radiusMeters} />
     <MapClick onSelect={onSelectCoordinate} />
+    {populationActive && livingPopulation?.status === "available" && densityCells.map(cell => <Rectangle
+      key={`${cell.row}-${cell.column}`}
+      bounds={cell.bounds}
+      interactive
+      pathOptions={{ color: cell.category.color, fillColor: cell.category.color, fillOpacity: .27, weight: .7 }}
+    ><Popup><strong>{cell.actual ? "250m 격자 실제 생활인구" : "생활인구 공간분포 추정"}</strong><br />{cell.actual ? <><b>{cell.population?.toLocaleString()}명</b> · {cell.category.label}</> : <>밀도지수 <b>{cell.score}/100</b> · {cell.category.label}</>}<br />{livingPopulation.referenceDate} {String(livingPopulation.hour).padStart(2, "0")}시<br />{cell.actual ? `격자 ${cell.row}` : `행정동 실제 생활인구 ${livingPopulation.total?.toLocaleString()}명`}<br /><small>{cell.actual ? "서울특별시 250m 격자 원자료" : "주변 지하철·약국·의료기관 접근성으로 공간 배분한 추정지수"}</small></Popup></Rectangle>)}
     <Circle center={[latitude, longitude]} radius={analysis.radiusMeters} pathOptions={{ color: "#0f937d", fillColor: "#38b2ac", fillOpacity: .08, weight: 2, dashArray: "6 7" }} />
-    {analysis.seoulRealtime && activeKinds.has("floatingPopulation") && <>
-      <Circle
-        center={[analysis.seoulRealtime.anchorLatitude, analysis.seoulRealtime.anchorLongitude]}
-        radius={Math.max(260, Math.min(720, Math.sqrt((analysis.seoulRealtime.currentMin + analysis.seoulRealtime.currentMax) / 2) * 3.1))}
-        pathOptions={{ className: "population-zone", color: "#009f88", fillColor: "#37d6b1", fillOpacity: .18, weight: 2 }}
-      ><Popup><strong>{analysis.seoulRealtime.areaName} 실시간 인구</strong><br />{analysis.seoulRealtime.currentMin.toLocaleString()}~{analysis.seoulRealtime.currentMax.toLocaleString()}명<br />혼잡도 {analysis.seoulRealtime.congestionLevel}<br /><small>서울 주요장소 단위 · {analysis.seoulRealtime.measuredAt}</small></Popup></Circle>
-      <CircleMarker center={[analysis.seoulRealtime.anchorLatitude, analysis.seoulRealtime.anchorLongitude]} radius={13} bubblingMouseEvents={false} pathOptions={{ className: "population-pulse", color: "#fff", fillColor: "#00a98f", fillOpacity: .9, weight: 3 }} />
-    </>}
     <CircleMarker center={[latitude, longitude]} radius={9} bubblingMouseEvents={false} pathOptions={{ color: "#fff", fillColor: "#14263d", fillOpacity: 1, weight: 4 }}>
       <Popup><b>분석 중심지</b><br />{analysis.location.displayName}</Popup>
     </CircleMarker>
