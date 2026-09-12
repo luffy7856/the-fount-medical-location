@@ -1,6 +1,7 @@
 "use client";
 
-import { Circle, CircleMarker, MapContainer, Popup, Rectangle, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { Circle, CircleMarker, MapContainer, Marker, Popup, Rectangle, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { divIcon } from "leaflet";
 import type { LocationAnalysis, LivePlace } from "@/data/location-types";
 import { useEffect } from "react";
 
@@ -11,6 +12,14 @@ const POPULATION_COLORS = [
   { max: 79, label: "높음", color: "#f28a32" },
   { max: 100, label: "매우 높음", color: "#dc3f2f" }
 ];
+
+const ANALYSIS_LOCATION_ICON = divIcon({
+  className: "analysis-location-marker",
+  html: '<div class="analysis-flag"><span class="analysis-flag-label">분석 위치</span><i class="analysis-flag-pole"></i><i class="analysis-flag-sheet">HERE</i><i class="analysis-flag-base"></i></div>',
+  iconSize: [76, 62],
+  iconAnchor: [17, 56],
+  popupAnchor: [18, -53]
+});
 
 function distanceMeters(latitude: number, longitude: number, targetLatitude: number, targetLongitude: number) {
   const north = (targetLatitude - latitude) * 111320;
@@ -119,9 +128,9 @@ export default function LiveMap({ analysis, activeKinds, populationActive, selec
       pathOptions={{ color: cell.category.color, fillColor: cell.category.color, fillOpacity: .27, weight: .7 }}
     ><Popup><strong>{cell.actual ? "250m 격자 실제 생활인구" : "생활인구 공간분포 추정"}</strong><br />{cell.actual ? <><b>{cell.population?.toLocaleString()}명</b> · {cell.category.label}</> : <>밀도지수 <b>{cell.score}/100</b> · {cell.category.label}</>}<br />{livingPopulation.referenceDate} {String(livingPopulation.hour).padStart(2, "0")}시<br />{cell.actual ? `격자 ${cell.row}` : `행정동 실제 생활인구 ${livingPopulation.total?.toLocaleString()}명`}<br /><small>{cell.actual ? "서울특별시 250m 격자 원자료" : "주변 지하철·약국·의료기관 접근성으로 공간 배분한 추정지수"}</small></Popup></Rectangle>)}
     <Circle center={[latitude, longitude]} radius={analysis.radiusMeters} pathOptions={{ color: "#0f937d", fillColor: "#38b2ac", fillOpacity: .08, weight: 2, dashArray: "6 7" }} />
-    <CircleMarker center={[latitude, longitude]} radius={9} bubblingMouseEvents={false} pathOptions={{ color: "#fff", fillColor: "#14263d", fillOpacity: 1, weight: 4 }}>
+    <Marker position={[latitude, longitude]} icon={ANALYSIS_LOCATION_ICON} zIndexOffset={1000} bubblingMouseEvents={false}>
       <Popup><b>분석 중심지</b><br />{analysis.location.displayName}</Popup>
-    </CircleMarker>
+    </Marker>
     {analysis.places.filter(place => activeKinds.has(place.kind)).map(place => <CircleMarker
       key={place.id}
       center={[place.latitude, place.longitude]}
