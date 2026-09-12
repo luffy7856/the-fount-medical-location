@@ -36,7 +36,7 @@ const EMPTY_ANALYSIS: LocationAnalysis = {
     { id: "hira", label: "HIRA 공식 의료기관", status: "not_configured", source: "건강보험심사평가원 병원정보서비스", message: "분석 후 승인키 연결 상태를 확인합니다.", requiredEnvironmentVariables: ["HIRA_SERVICE_KEY"], setupUrl: "https://www.data.go.kr/data/15001698/openapi.do" },
     { id: "consumer", label: "소비력", status: "not_configured", source: "서울시 상권분석서비스(소비-행정동)", message: "분석 후 서울시 소비 데이터 상태를 확인합니다.", requiredEnvironmentVariables: ["SEOUL_OPEN_DATA_API_KEY"], setupUrl: "https://data.seoul.go.kr/dataList/OA-22166/S/1/datasetView.do" },
     { id: "rent", label: "상가 임대료", status: "not_configured", source: "상업용 부동산 임대 데이터 공급자", message: "승인된 임대료 공급자 연결이 필요합니다.", requiredEnvironmentVariables: ["COMMERCIAL_RENT_API_KEY", "COMMERCIAL_RENT_API_URL_TEMPLATE"], setupUrl: "https://www.data.go.kr/tcs/dss/selectDataSetList.do?keyword=%EC%83%81%EA%B0%80%20%EC%9E%84%EB%8C%80%EB%A3%8C" },
-    { id: "development", label: "개발계획", status: "not_configured", source: "국토·도시계획 데이터 공급자", message: "승인된 개발계획 공급자 연결이 필요합니다.", requiredEnvironmentVariables: ["DEVELOPMENT_PLAN_API_KEY", "DEVELOPMENT_PLAN_API_URL_TEMPLATE"], setupUrl: "https://www.vworld.kr/dtna/dtna_apiSvcFc_s001.do" }
+    { id: "development", label: "개발계획", status: "not_configured", source: "국토·도시계획 데이터 공급자", message: "승인된 실제 계획 데이터셋 연결이 필요합니다.", requiredEnvironmentVariables: ["DEVELOPMENT_PLAN_API_URL_TEMPLATE", "DEVELOPMENT_PLAN_API_KEY 또는 VWORLD_API_KEY"], setupUrl: "https://www.vworld.kr/dtna/dtna_apiSvcFc_s001.do" }
   ]
 };
 

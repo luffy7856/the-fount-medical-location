@@ -22,10 +22,19 @@ NEXT_PUBLIC_MAP_TILE_URL=
 
 - HIRA 공식 의료기관: `HIRA_SERVICE_KEY`를 등록하면 병원정보서비스의 반경별 공식 수치를 우선 사용합니다. 지도 마커와 장소명은 Kakao를 계속 사용해 출처를 분리합니다.
 - 서울 소비력: 기존 `SEOUL_OPEN_DATA_API_KEY`를 사용합니다. 공식 서비스명 `VwsmAdstrdNcmCnsmpW`를 기본값으로 사용하며, 행정동 총지출 백분위 60%와 의료비 지출 백분위 40%를 소비력 참고점수에 반영합니다.
-- 상가 임대료: `COMMERCIAL_RENT_API_KEY`, `COMMERCIAL_RENT_API_URL_TEMPLATE`을 등록합니다. 응답에는 `monthlyRentPerPyeongManwon`이 필요하며 표본 중앙값을 사용합니다.
-- 개발계획: `DEVELOPMENT_PLAN_API_KEY`(또는 `VWORLD_API_KEY`), `DEVELOPMENT_PLAN_API_URL_TEMPLATE`을 등록합니다. 응답에는 `name`, `category`, `status`, 선택적으로 `distanceMeters`, `targetDate`를 사용합니다.
+- 상가 임대료: `COMMERCIAL_RENT_API_KEY`, `COMMERCIAL_RENT_API_URL_TEMPLATE`을 등록합니다. JSON·GeoJSON·일반 공공데이터 XML 응답을 읽고, 선택 범위 안의 유효 표본만 사용해 평당 월세 중앙값을 계산합니다. 공급자 단위는 `COMMERCIAL_RENT_VALUE_UNIT`에 명시해야 하며, 단위를 추정해서 실제값처럼 표시하지 않습니다.
+- 개발계획: `DEVELOPMENT_PLAN_API_KEY`(또는 `VWORLD_API_KEY`), `DEVELOPMENT_PLAN_API_URL_TEMPLATE`을 등록합니다. VWorld 운영키만으로 임의의 공간정보 레이어를 개발계획으로 간주하지 않으며, 승인된 실제 계획 데이터셋의 URL을 템플릿에 지정해야 활성화됩니다. 응답의 사업명·유형·진행상태·일정·위치를 표준화하고 이름이 없는 피처는 제외합니다.
 
-URL 템플릿은 `{key}`, `{lat}`, `{lng}`, `{radius}`, `{admCode}`를 지원합니다. 키 값은 서버 환경변수에서만 사용되고 API 응답에는 연결 상태와 필요한 변수 이름만 포함됩니다.
+URL 템플릿은 `{key}`, `{domain}`, `{lat}`, `{lng}`, `{radius}`, `{admCode}`, `{specialty}`, `{minLng}`, `{minLat}`, `{maxLng}`, `{maxLat}`, `{bbox}`를 지원합니다. 키가 URL이 아니라 헤더에 들어가는 공급자는 `*_API_KEY_HEADER`에 정확한 헤더 이름을 지정합니다. 키 값은 서버 환경변수에서만 사용되고 API 응답에는 연결 상태와 필요한 변수 이름만 포함됩니다.
+
+### 승인 후 즉시 활성화 체크리스트
+
+1. 공급자 문서에서 실제 데이터셋과 JSON·GeoJSON 또는 XML 조회 URL을 확인합니다.
+2. Vercel Production 환경변수에 승인키, URL 템플릿, 출처명을 등록합니다.
+3. 임대료는 금액 단위를 `COMMERCIAL_RENT_VALUE_UNIT`에 명시합니다.
+4. 재배포 후 화면의 `정밀 데이터 연결 상태`가 `실데이터`인지 확인합니다. 자료가 없는 지역은 `자료 없음`, 키·응답 오류는 `연결 점검`으로 분리되어 표시됩니다.
+
+VWorld는 건축물·용도지역·지가 등 다양한 공간 레이어를 제공하지만, 선택한 레이어가 곧 확정된 개발사업을 뜻하지는 않습니다. 따라서 사업명과 진행상태를 제공하는 승인 데이터셋만 개발계획 점수에 반영합니다.
 
 서울 생활인구는 `Spop250mLocalResdDong` 서비스의 행정동 집계값입니다. 이 서비스의 데이터 생산은 2026-07-31 종료되어 이후 날짜를 선택하면 마지막 실제 제공일 자료로 자동 보정합니다. 서울시가 새로 공개한 250m 격자 데이터는 기존 행정동 자료와 공간 단위 및 필드가 달라 별도 어댑터로 이전할 예정입니다. 지도에서 보이는 밀도는 행정동 실제 총계를 시설 접근성에 따라 공간 분포한 추정치이며 개별 도로 통행량을 뜻하지 않습니다. 서울 이외 지역이나 키 미설정 상태는 미지원 사유를 화면에 그대로 표시합니다.
 

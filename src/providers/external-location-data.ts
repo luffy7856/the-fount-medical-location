@@ -1,3 +1,5 @@
+import "server-only";
+
 import type {
   ConsumerPowerData, DataConnection, DevelopmentPlanData, DevelopmentPlanItem,
   ExternalDataStatus, HiraMedicalData, RentMarketData
@@ -93,9 +95,29 @@ async function fetchHiraMedical(context: ProviderContext): Promise<HiraMedicalDa
 function findRows(payload: unknown, depth = 0): Record<string, unknown>[] {
   if (!payload || typeof payload !== "object") return [];
   if (depth > 5) return [];
-  for (const value of Object.values(payload as Record<string, unknown>)) {
-    if (value && typeof value === "object" && Array.isArray((value as { row?: unknown }).row)) return (value as { row: Record<string, unknown>[] }).row;
-    if (Array.isArray(value) && value.every(item => item && typeof item === "object")) return value as Record<string, unknown>[];
+  if (Array.isArray(payload)) {
+    return payload
+      .filter(item => item && typeof item === "object" && !Array.isArray(item))
+      .map(item => item as Record<string, unknown>);
+  }
+  const record = payload as Record<string, unknown>;
+  const preferredKeys = ["row", "rows", "item", "items", "records", "features", "data", "results", "result"];
+  for (const key of preferredKeys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      const rows = value
+        .filter(item => item && typeof item === "object" && !Array.isArray(item))
+        .map(item => {
+          const feature = item as Record<string, unknown>;
+          const properties = feature.properties;
+          return properties && typeof properties === "object" && !Array.isArray(properties)
+            ? { ...(properties as Record<string, unknown>), __geometry: feature.geometry }
+            : feature;
+        });
+      if (rows.length) return rows;
+    }
+  }
+  for (const value of Object.values(record)) {
     const nested = findRows(value, depth + 1);
     if (nested.length) return nested;
   }
@@ -158,61 +180,197 @@ async function fetchSeoulConsumerPower(context: ProviderContext): Promise<Consum
 }
 
 function expandTemplate(template: string, key: string | undefined, context: ProviderContext) {
+  const latitudeDelta = context.radiusMeters / 111_320;
+  const longitudeDelta = context.radiusMeters / (111_320 * Math.max(.2, Math.cos(context.latitude * Math.PI / 180)));
+  const bbox = [
+    context.longitude - longitudeDelta,
+    context.latitude - latitudeDelta,
+    context.longitude + longitudeDelta,
+    context.latitude + latitudeDelta
+  ];
   return template
     .replaceAll("{key}", encodeURIComponent(key || ""))
     .replaceAll("{lat}", String(context.latitude))
     .replaceAll("{lng}", String(context.longitude))
     .replaceAll("{radius}", String(context.radiusMeters))
-    .replaceAll("{admCode}", encodeURIComponent(context.administrativeCode || ""));
+    .replaceAll("{admCode}", encodeURIComponent(context.administrativeCode || ""))
+    .replaceAll("{specialty}", encodeURIComponent(context.specialty))
+    .replaceAll("{minLng}", String(bbox[0]))
+    .replaceAll("{minLat}", String(bbox[1]))
+    .replaceAll("{maxLng}", String(bbox[2]))
+    .replaceAll("{maxLat}", String(bbox[3]))
+    .replaceAll("{bbox}", bbox.join(","))
+    .replaceAll("{domain}", encodeURIComponent(process.env.VWORLD_API_DOMAIN || "https://the-fount-medical-location.vercel.app"));
 }
 
-async function fetchConfiguredJson(template: string, key: string | undefined, context: ProviderContext) {
-  const response = await fetch(expandTemplate(template, key, context), {
+function providerHeaders(key: string | undefined, keyHeader: string | undefined) {
+  if (!key || !keyHeader) return undefined;
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(keyHeader)) throw new Error("승인키 헤더 이름 설정이 올바르지 않습니다.");
+  return { [keyHeader]: key };
+}
+
+function parseXmlRows(xml: string) {
+  const blocks = Array.from(xml.matchAll(/<(?:\w+:)?(?:item|featureMember)\b[^>]*>([\s\S]*?)<\/(?:\w+:)?(?:item|featureMember)>/gi));
+  return blocks.map((block) => {
+    const row: Record<string, unknown> = {};
+    for (const match of Array.from(block[1].matchAll(/<(?:\w+:)?([\w가-힣-]+)\b[^>]*>(?:<!\[CDATA\[)?([^<]*?)(?:\]\]>)?<\/(?:\w+:)?\1>/gi))) {
+      row[match[1]] = decodeXml(match[2].trim());
+    }
+    return row;
+  }).filter(row => Object.keys(row).length > 0);
+}
+
+async function fetchConfiguredPayload(template: string, key: string | undefined, keyHeader: string | undefined, context: ProviderContext) {
+  const expanded = expandTemplate(template, key, context);
+  const url = new URL(expanded);
+  if (!["https:", "http:"].includes(url.protocol)) throw new Error("공급자 URL은 HTTP(S)만 사용할 수 있습니다.");
+  const response = await fetch(url, {
     cache: "no-store", signal: AbortSignal.timeout(9000),
-    headers: key && !template.includes("{key}") ? { Authorization: `Bearer ${key}`, "x-api-key": key } : undefined
+    headers: providerHeaders(key, template.includes("{key}") ? undefined : keyHeader)
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
+  const text = await response.text();
+  if (!text.trim()) throw new Error("공급자 응답이 비어 있습니다.");
+  if (/^\s*</.test(text)) {
+    if (/<(?:OpenAPI_ServiceResponse|ExceptionReport|ServiceExceptionReport)|SERVICE_(?:ACCESS_DENIED|KEY_IS_NOT_REGISTERED)|PERMISSION_DENIED/i.test(text)) {
+      throw new Error("공급자 승인키 또는 API 권한을 확인해주세요.");
+    }
+    return { rows: parseXmlRows(text) };
+  }
+  const payload = JSON.parse(text) as unknown;
+  const serialized = JSON.stringify(payload).slice(0, 4000);
+  if (/"(?:status|resultCode|code)"\s*:\s*"?(?:ERROR|FAIL|AUTH|401|403|99)|SERVICE_(?:ACCESS_DENIED|KEY_IS_NOT_REGISTERED)|PERMISSION_DENIED/i.test(serialized)) {
+    throw new Error("공급자 승인키 또는 API 권한을 확인해주세요.");
+  }
+  return payload;
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function coordinateFromRow(row: Record<string, unknown>) {
+  const geometry = row.__geometry;
+  if (geometry && typeof geometry === "object") {
+    const coordinates = (geometry as { coordinates?: unknown }).coordinates;
+    const points: [number, number][] = [];
+    const collectPoints = (value: unknown) => {
+      if (!Array.isArray(value)) return;
+      if (typeof value[0] === "number" && typeof value[1] === "number") {
+        points.push([value[0], value[1]]);
+        return;
+      }
+      value.forEach(collectPoints);
+    };
+    collectPoints(coordinates);
+    if (points.length) {
+      return {
+        longitude: points.reduce((sum, point) => sum + point[0], 0) / points.length,
+        latitude: points.reduce((sum, point) => sum + point[1], 0) / points.length
+      };
+    }
+  }
+  const latitude = firstNumber(row, ["latitude", "lat", "LAT", "y", "Y", "위도"]);
+  const longitude = firstNumber(row, ["longitude", "lng", "lon", "LNG", "LON", "x", "X", "경도"]);
+  return latitude !== undefined && longitude !== undefined ? { latitude, longitude } : undefined;
+}
+
+function distanceMeters(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
+  const rad = (value: number) => value * Math.PI / 180;
+  const dLat = rad(b.latitude - a.latitude);
+  const dLng = rad(b.longitude - a.longitude);
+  const lat1 = rad(a.latitude);
+  const lat2 = rad(b.latitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return Math.round(6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
+}
+
+function withinRequestedArea(row: Record<string, unknown>, context: ProviderContext) {
+  const coordinate = coordinateFromRow(row);
+  if (!coordinate) return true;
+  return distanceMeters(context, coordinate) <= context.radiusMeters * 1.1;
+}
+
+type RentUnit = "manwon_per_pyeong" | "won_per_pyeong" | "won_per_square_meter" | "manwon_total_monthly" | "won_total_monthly";
+
+function rentPerPyeong(row: Record<string, unknown>, unit: RentUnit) {
+  const direct = firstNumber(row, ["monthlyRentPerPyeongManwon"]);
+  if (direct !== undefined) return direct;
+  const raw = firstNumber(row, ["RENT_PER_PYEONG", "rentPerPyeong", "monthlyRent", "MONTHLY_RENT", "월세", "임대료"]);
+  if (raw === undefined) return undefined;
+  if (unit === "won_per_pyeong") return raw / 10_000;
+  if (unit === "won_per_square_meter") return raw * 3.305785 / 10_000;
+  if (unit === "manwon_total_monthly" || unit === "won_total_monthly") {
+    const area = firstNumber(row, ["areaPyeong", "AREA_PYEONG", "exclusiveAreaPyeong", "평수", "계약면적평"]);
+    if (!area || area <= 0) return undefined;
+    return unit === "manwon_total_monthly" ? raw / area : raw / 10_000 / area;
+  }
+  return raw;
+}
+
+function depositManwon(row: Record<string, unknown>, unit: "manwon" | "won") {
+  const direct = firstNumber(row, ["medianDepositManwon", "depositManwon"]);
+  if (direct !== undefined) return direct;
+  const raw = firstNumber(row, ["DEPOSIT_MANWON", "DEPOSIT", "deposit", "보증금"]);
+  return raw === undefined ? undefined : unit === "won" ? raw / 10_000 : raw;
 }
 
 async function fetchRentMarket(context: ProviderContext): Promise<RentMarketData> {
   const template = process.env.COMMERCIAL_RENT_API_URL_TEMPLATE;
   const key = process.env.COMMERCIAL_RENT_API_KEY;
-  const base: RentMarketData = { status: "not_configured", source: "상업용 부동산 임대 데이터 공급자", spatialUnit: "선택 반경", message: "상가 임대료 공급자의 URL 템플릿과 승인키를 등록하면 비용효율이 활성화됩니다." };
+  const source = process.env.COMMERCIAL_RENT_SOURCE_NAME || "상업용 부동산 임대 데이터 공급자";
+  const spatialUnit = process.env.COMMERCIAL_RENT_SPATIAL_UNIT || "선택 반경";
+  const base: RentMarketData = { status: "not_configured", source, spatialUnit, message: "계약·승인된 상가 임대료 API의 URL 템플릿과 승인키를 등록하면 비용효율이 활성화됩니다." };
   if (!template || !key) return base;
   try {
-    const payload = await fetchConfiguredJson(template, key, context);
-    const rows = findRows(payload);
-    const rents = rows.map(row => firstNumber(row, ["monthlyRentPerPyeongManwon", "RENT_PER_PYEONG", "rentPerPyeong"])).filter((value): value is number => value !== undefined && value > 0).sort((a, b) => a - b);
+    const payload = await fetchConfiguredPayload(template, key, process.env.COMMERCIAL_RENT_API_KEY_HEADER, context);
+    const rows = findRows(payload).filter(row => withinRequestedArea(row, context));
+    const unit = (process.env.COMMERCIAL_RENT_VALUE_UNIT || "manwon_per_pyeong") as RentUnit;
+    if (!["manwon_per_pyeong", "won_per_pyeong", "won_per_square_meter", "manwon_total_monthly", "won_total_monthly"].includes(unit)) {
+      throw new Error("COMMERCIAL_RENT_VALUE_UNIT 설정을 확인해주세요.");
+    }
+    const depositUnit = process.env.COMMERCIAL_RENT_DEPOSIT_UNIT === "won" ? "won" : "manwon";
+    const rents = rows.map(row => rentPerPyeong(row, unit)).filter((value): value is number => value !== undefined && value > 0 && value < 10_000);
     if (!rents.length) return { ...base, status: "no_data", message: "선택 반경의 유효한 상가 임대료 표본이 없습니다." };
-    const median = rents[Math.floor(rents.length / 2)];
-    const deposits = rows.map(row => firstNumber(row, ["medianDepositManwon", "DEPOSIT_MANWON", "depositManwon"])).filter((value): value is number => value !== undefined);
-    const score = Math.max(10, Math.min(90, Math.round(92 - median * 2.4)));
-    return { status: "available", source: "상업용 부동산 임대 데이터 공급자", spatialUnit: "선택 반경", referenceDate: todayInSeoul(), sampleCount: rents.length, monthlyRentPerPyeongManwon: median, medianDepositManwon: deposits.length ? deposits.sort((a, b) => a - b)[Math.floor(deposits.length / 2)] : undefined, score, message: `반경 내 ${rents.length}개 표본의 평당 월세 중앙값을 반영했습니다.` };
-  } catch { return { ...base, status: "error", message: "임대료 공급자 응답 또는 승인키를 확인해주세요." }; }
+    const medianRent = median(rents);
+    const deposits = rows.map(row => depositManwon(row, depositUnit)).filter((value): value is number => value !== undefined && value >= 0 && value < 10_000_000);
+    const referenceDates = rows.map(row => firstText(row, ["referenceDate", "REFERENCE_DATE", "baseDate", "BASE_DATE", "dealDate", "계약일", "기준일"])).filter((value): value is string => Boolean(value)).sort();
+    const score = Math.max(10, Math.min(90, Math.round(92 - medianRent * 2.4)));
+    return { status: "available", source, spatialUnit, referenceDate: referenceDates.at(-1) || todayInSeoul(), sampleCount: rents.length, monthlyRentPerPyeongManwon: Math.round(medianRent * 10) / 10, medianDepositManwon: deposits.length ? Math.round(median(deposits)) : undefined, score, message: `선택 범위의 유효 표본 ${rents.length}개에서 평당 월세 중앙값을 계산했습니다. 비용효율 점수는 비교용 내부 참고지표입니다.` };
+  } catch (error) { return { ...base, status: "error", message: error instanceof Error ? `임대료 연결 점검: ${error.message}` : "임대료 공급자 응답 또는 승인키를 확인해주세요." }; }
 }
 
 async function fetchDevelopmentPlans(context: ProviderContext): Promise<DevelopmentPlanData> {
   const template = process.env.DEVELOPMENT_PLAN_API_URL_TEMPLATE;
   const key = process.env.DEVELOPMENT_PLAN_API_KEY || process.env.VWORLD_API_KEY;
-  const base: DevelopmentPlanData = { status: "not_configured", source: "국토·도시계획 데이터 공급자", radiusMeters: context.radiusMeters, plans: [], message: "개발계획 공급자의 URL 템플릿과 승인키를 등록하면 성장성에 계획 정보가 추가됩니다." };
+  const source = process.env.DEVELOPMENT_PLAN_SOURCE_NAME || (process.env.VWORLD_API_KEY ? "VWorld 연계 국토·도시 공간정보" : "국토·도시계획 데이터 공급자");
+  const base: DevelopmentPlanData = { status: "not_configured", source, radiusMeters: context.radiusMeters, plans: [], message: key && !template ? "운영키는 준비됐습니다. 승인된 개발계획 데이터셋의 URL 템플릿을 등록하면 즉시 활성화됩니다." : "운영키와 개발계획 데이터셋 URL 템플릿을 등록하면 성장성에 실제 공개 계획이 추가됩니다." };
   if (!template || !key) return base;
   try {
-    const payload = await fetchConfiguredJson(template, key, context);
-    const rows = findRows(payload);
-    const plans: DevelopmentPlanItem[] = rows.slice(0, 30).map((row, index) => ({
-      id: firstText(row, ["id", "PLAN_ID", "pnu"]) || `plan-${index}`,
-      name: firstText(row, ["name", "PLAN_NM", "title"]) || "개발계획",
-      category: firstText(row, ["category", "PLAN_TYPE", "type"]) || "도시계획",
-      status: firstText(row, ["status", "PLAN_STATUS", "progress"]) || "공개자료 확인",
-      distanceMeters: firstNumber(row, ["distanceMeters", "DISTANCE", "distance"]),
-      targetDate: firstText(row, ["targetDate", "TARGET_DATE", "completionDate"])
-    }));
+    const payload = await fetchConfiguredPayload(template, key, process.env.DEVELOPMENT_PLAN_API_KEY_HEADER, context);
+    const rows = findRows(payload).filter(row => withinRequestedArea(row, context));
+    const plans: DevelopmentPlanItem[] = rows.flatMap((row, index) => {
+      const name = firstText(row, ["name", "PLAN_NM", "title", "projectName", "prj_nm", "proj_nm", "사업명", "사업명칭", "공사명", "시설명"]);
+      if (!name) return [];
+      const coordinate = coordinateFromRow(row);
+      const suppliedDistance = firstNumber(row, ["distanceMeters", "DISTANCE", "distance", "거리"]);
+      return [{
+        id: firstText(row, ["id", "PLAN_ID", "projectId", "pnu", "fid", "gml_id", "사업관리번호"]) || `plan-${index}-${name}`,
+        name,
+        category: firstText(row, ["category", "PLAN_TYPE", "type", "projectType", "사업구분", "계획유형", "시설종류"]) || "공개 개발계획",
+        status: firstText(row, ["status", "PLAN_STATUS", "progress", "projectStatus", "진행상태", "사업상태", "추진단계"]) || "공개자료 확인",
+        distanceMeters: suppliedDistance ?? (coordinate ? distanceMeters(context, coordinate) : undefined),
+        targetDate: firstText(row, ["targetDate", "TARGET_DATE", "completionDate", "endDate", "준공예정일", "완료예정일", "사업기간"])
+      }];
+    }).slice(0, 30);
     if (!plans.length) return { ...base, status: "no_data", message: "선택 반경의 공개 개발계획을 찾지 못했습니다." };
     const active = plans.filter(plan => /진행|승인|공사|예정|확정/i.test(plan.status)).length;
     const score = Math.max(35, Math.min(90, 45 + active * 6 + (plans.length - active) * 2));
-    return { status: "available", source: "국토·도시계획 데이터 공급자", referenceDate: todayInSeoul(), radiusMeters: context.radiusMeters, plans, score, message: `반경 내 공개 계획 ${plans.length}건 중 진행·승인·예정 ${active}건을 확인했습니다.` };
-  } catch { return { ...base, status: "error", message: "개발계획 공급자 응답 또는 승인키를 확인해주세요." }; }
+    const referenceDates = rows.map(row => firstText(row, ["referenceDate", "REFERENCE_DATE", "baseDate", "BASE_DATE", "기준일", "갱신일"])).filter((value): value is string => Boolean(value)).sort();
+    return { status: "available", source, referenceDate: referenceDates.at(-1) || todayInSeoul(), radiusMeters: context.radiusMeters, plans, score, message: `선택 반경의 공개 계획 ${plans.length}건 중 진행·승인·예정 ${active}건을 확인했습니다. 계획의 확정 여부와 일정은 원문을 별도로 확인해야 합니다.` };
+  } catch (error) { return { ...base, status: "error", message: error instanceof Error ? `개발계획 연결 점검: ${error.message}` : "개발계획 공급자 응답 또는 승인키를 확인해주세요." }; }
 }
 
 function connection(id: DataConnection["id"], label: string, status: ExternalDataStatus, source: string, message: string, requiredEnvironmentVariables: string[], setupUrl: string, referenceDate?: string, spatialUnit?: string): DataConnection {
@@ -223,11 +381,18 @@ export async function fetchExternalLocationData(context: ProviderContext): Promi
   const [hiraMedical, consumerPower, rentMarket, developmentPlans] = await Promise.all([
     fetchHiraMedical(context), fetchSeoulConsumerPower(context), fetchRentMarket(context), fetchDevelopmentPlans(context)
   ]);
+  const developmentRequiredVariables = process.env.DEVELOPMENT_PLAN_API_URL_TEMPLATE
+    ? (process.env.DEVELOPMENT_PLAN_API_KEY || process.env.VWORLD_API_KEY ? [] : ["DEVELOPMENT_PLAN_API_KEY 또는 VWORLD_API_KEY"])
+    : ["DEVELOPMENT_PLAN_API_URL_TEMPLATE", ...(process.env.DEVELOPMENT_PLAN_API_KEY || process.env.VWORLD_API_KEY ? [] : ["DEVELOPMENT_PLAN_API_KEY 또는 VWORLD_API_KEY"])];
+  const rentRequiredVariables = [
+    ...(process.env.COMMERCIAL_RENT_API_URL_TEMPLATE ? [] : ["COMMERCIAL_RENT_API_URL_TEMPLATE"]),
+    ...(process.env.COMMERCIAL_RENT_API_KEY ? [] : ["COMMERCIAL_RENT_API_KEY"])
+  ];
   const dataConnections = [
     connection("hira", "HIRA 공식 의료기관", hiraMedical.status, hiraMedical.source, hiraMedical.message, ["HIRA_SERVICE_KEY"], HIRA_SETUP_URL, hiraMedical.referenceDate, "선택 반경"),
     connection("consumer", "소비력", consumerPower.status, consumerPower.source, consumerPower.message, ["SEOUL_OPEN_DATA_API_KEY"], SEOUL_CONSUMER_URL, consumerPower.referencePeriod, consumerPower.spatialUnit),
-    connection("rent", "상가 임대료", rentMarket.status, rentMarket.source, rentMarket.message, ["COMMERCIAL_RENT_API_KEY", "COMMERCIAL_RENT_API_URL_TEMPLATE"], RENT_GUIDE_URL, rentMarket.referenceDate, rentMarket.spatialUnit),
-    connection("development", "개발계획", developmentPlans.status, developmentPlans.source, developmentPlans.message, ["DEVELOPMENT_PLAN_API_KEY", "DEVELOPMENT_PLAN_API_URL_TEMPLATE"], DEVELOPMENT_GUIDE_URL, developmentPlans.referenceDate, "선택 반경")
+    connection("rent", "상가 임대료", rentMarket.status, rentMarket.source, rentMarket.message, rentRequiredVariables, RENT_GUIDE_URL, rentMarket.referenceDate, rentMarket.spatialUnit),
+    connection("development", "개발계획", developmentPlans.status, developmentPlans.source, developmentPlans.message, developmentRequiredVariables, DEVELOPMENT_GUIDE_URL, developmentPlans.referenceDate, "선택 반경")
   ];
   return { hiraMedical, consumerPower, rentMarket, developmentPlans, dataConnections };
 }
