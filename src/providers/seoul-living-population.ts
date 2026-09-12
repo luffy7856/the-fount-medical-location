@@ -154,9 +154,21 @@ async function fetchSeoulGridLivingPopulation(key: string, input: {
     return [{ id: row.CELL_ID.trim(), ...center, population: Math.round(population * 100) / 100 }];
   });
   if (!rawCells.length) throw new Error("no nearby grid");
-  const values = rawCells.map(cell => cell.population).sort((a, b) => a - b);
+  // A 250m cell can straddle multiple administrative dongs. Seoul then returns
+  // one row per dong fragment with the same CELL_ID. The fragments must be
+  // summed into a single map cell; rendering each row separately overlays the
+  // same rectangle and makes the density layer look inconsistent with the total.
+  const groupedCells = new Map<string, (typeof rawCells)[number]>();
+  rawCells.forEach(cell => {
+    const existing = groupedCells.get(cell.id);
+    groupedCells.set(cell.id, existing
+      ? { ...existing, population: Math.round((existing.population + cell.population) * 100) / 100 }
+      : cell);
+  });
+  const uniqueCells = Array.from(groupedCells.values());
+  const values = uniqueCells.map(cell => cell.population).sort((a, b) => a - b);
   const densityBreaks = [quantile(values, .25), quantile(values, .5), quantile(values, .75)] as [number, number, number];
-  const gridCells = rawCells.map(cell => ({
+  const gridCells = uniqueCells.map(cell => ({
     ...cell,
     band: (cell.population <= densityBreaks[0] ? 0 : cell.population <= densityBreaks[1] ? 1 : cell.population <= densityBreaks[2] ? 2 : 3) as 0 | 1 | 2 | 3
   }));
@@ -174,7 +186,7 @@ async function fetchSeoulGridLivingPopulation(key: string, input: {
     total: Math.round(gridCells.reduce((sum, cell) => sum + cell.population, 0)),
     gridCells,
     densityBreaks,
-    message: `반경 ${input.radiusMeters.toLocaleString()}m에 걸친 서울시 250m 생활인구 격자 ${gridCells.length}개의 실제 값을 합산했습니다.`
+    message: `반경 ${input.radiusMeters.toLocaleString()}m에 걸친 서울시 250m 생활인구 고유 격자 ${gridCells.length}개의 실제 값을 합산했습니다.`
   };
 }
 
