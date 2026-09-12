@@ -22,7 +22,7 @@ NEXT_PUBLIC_MAP_TILE_URL=
 
 - HIRA 공식 의료기관: `HIRA_SERVICE_KEY`를 등록하면 병원정보서비스의 반경별 공식 수치를 우선 사용합니다. 지도 마커와 장소명은 Kakao를 계속 사용해 출처를 분리합니다.
 - 서울 소비력: 기존 `SEOUL_OPEN_DATA_API_KEY`를 사용합니다. 공식 서비스명 `VwsmAdstrdNcmCnsmpW`를 기본값으로 사용하며, 행정동 총지출 백분위 60%와 의료비 지출 백분위 40%를 소비력 참고점수에 반영합니다.
-- 상가 임대료: `COMMERCIAL_RENT_API_KEY`, `COMMERCIAL_RENT_API_URL_TEMPLATE`을 등록합니다. JSON·GeoJSON·일반 공공데이터 XML 응답을 읽고, 선택 범위 안의 유효 표본만 사용해 평당 월세 중앙값을 계산합니다. 공급자 단위는 `COMMERCIAL_RENT_VALUE_UNIT`에 명시해야 하며, 단위를 추정해서 실제값처럼 표시하지 않습니다.
+- 상가 임대료: 기본적으로 한국부동산원 R-ONE의 분기별 중대형 상가 임대료 공표값을 서버에서 조회합니다. 단위 `천원/㎡`를 `만원/평`으로 명시적으로 환산하고, 화면에는 공표 상권 또는 시·도와 `중대형 상가 1층 기준`임을 함께 표시합니다. `RONE_API_KEY`는 선택사항이며, 별도 계약한 반경 단위 임대료 공급자가 있다면 `COMMERCIAL_RENT_API_KEY`, `COMMERCIAL_RENT_API_URL_TEMPLATE`을 등록해 우선 사용할 수 있습니다.
 - 개발계획: `DEVELOPMENT_PLAN_API_KEY`(또는 `VWORLD_API_KEY`), `DEVELOPMENT_PLAN_API_URL_TEMPLATE`을 등록합니다. VWorld 운영키만으로 임의의 공간정보 레이어를 개발계획으로 간주하지 않으며, 승인된 실제 계획 데이터셋의 URL을 템플릿에 지정해야 활성화됩니다. 응답의 사업명·유형·진행상태·일정·위치를 표준화하고 이름이 없는 피처는 제외합니다.
 
 URL 템플릿은 `{key}`, `{domain}`, `{lat}`, `{lng}`, `{radius}`, `{admCode}`, `{specialty}`, `{minLng}`, `{minLat}`, `{maxLng}`, `{maxLat}`, `{bbox}`를 지원합니다. 키가 URL이 아니라 헤더에 들어가는 공급자는 `*_API_KEY_HEADER`에 정확한 헤더 이름을 지정합니다. 키 값은 서버 환경변수에서만 사용되고 API 응답에는 연결 상태와 필요한 변수 이름만 포함됩니다.

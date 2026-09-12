@@ -200,7 +200,7 @@ function OverviewPanel({ analysis, onTab, aiLoading }: { analysis: LocationAnaly
     ...(analysis.demographics ? [["거주인구", `${analysis.demographics.residentPopulation.toLocaleString()}명`, `${analysis.demographics.areaName} · SGIS ${analysis.demographics.year}`], ["종사자", `${analysis.demographics.workerPopulation.toLocaleString()}명`, `${analysis.demographics.businesses.toLocaleString()}개 사업체`]] : []),
     ...(analysis.livingPopulation?.status === "available" ? [["생활인구", `${analysis.livingPopulation.total?.toLocaleString()}명`, `${analysis.livingPopulation.referenceDate} ${String(analysis.livingPopulation.hour).padStart(2, "0")}시 · 서울시`]] : []),
     ...(analysis.consumerPower?.status === "available" ? [["소비력 백분위", `${analysis.consumerPower.percentile}%`, `${analysis.consumerPower.areaName || "행정동"} · ${analysis.consumerPower.referencePeriod || "최신"}`]] : []),
-    ...(analysis.rentMarket?.status === "available" ? [["평당 월세 중앙값", `${analysis.rentMarket.monthlyRentPerPyeongManwon?.toLocaleString()}만원`, `${analysis.rentMarket.sampleCount}개 표본`]] : []),
+    ...(analysis.rentMarket?.status === "available" ? [["평당 월세 참고값", `${analysis.rentMarket.monthlyRentPerPyeongManwon?.toLocaleString()}만원`, analysis.rentMarket.spatialUnit]] : []),
     ...(analysis.developmentPlans?.status === "available" ? [["주변 개발계획", `${analysis.developmentPlans.plans.length}건`, `반경 ${analysis.developmentPlans.radiusMeters.toLocaleString()}m`]] : [])
   ];
   const excluded = analysis.metrics.filter(metric => metric.value === null).map(metric => metric.label);

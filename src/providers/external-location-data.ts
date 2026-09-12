@@ -8,14 +8,17 @@ import type { Specialty } from "@/data/specialties";
 
 const HIRA_SETUP_URL = "https://www.data.go.kr/data/15001698/openapi.do";
 const SEOUL_CONSUMER_URL = "https://data.seoul.go.kr/dataList/OA-22166/S/1/datasetView.do";
-const RENT_GUIDE_URL = "https://www.data.go.kr/tcs/dss/selectDataSetList.do?keyword=%EC%83%81%EA%B0%80%20%EC%9E%84%EB%8C%80%EB%A3%8C";
+const RENT_GUIDE_URL = "https://www.reb.or.kr/r-one/portal/openapi/openApiIntroPage.do";
 const DEVELOPMENT_GUIDE_URL = "https://www.vworld.kr/dtna/dtna_apiSvcFc_s001.do";
+const RONE_RETAIL_RENT_TABLE = "T244363134858603";
+const RONE_RETAIL_RENT_ITEM = "100001";
 
 type ProviderContext = {
   latitude: number;
   longitude: number;
   radiusMeters: number;
   administrativeCode?: string;
+  displayName?: string;
   specialty: Specialty;
 };
 
@@ -317,13 +320,133 @@ function depositManwon(row: Record<string, unknown>, unit: "manwon" | "won") {
   return raw === undefined ? undefined : unit === "won" ? raw / 10_000 : raw;
 }
 
+const RONE_PROVINCE_CODES: Record<string, { id: string; name: string }> = {
+  "11": { id: "500002", name: "서울" }, "26": { id: "500003", name: "부산" },
+  "27": { id: "500004", name: "대구" }, "28": { id: "500005", name: "인천" },
+  "29": { id: "500006", name: "광주" }, "30": { id: "500007", name: "대전" },
+  "31": { id: "500008", name: "울산" }, "36": { id: "500009", name: "세종" },
+  "41": { id: "500010", name: "경기" }, "42": { id: "500011", name: "강원" },
+  "43": { id: "500012", name: "충북" }, "44": { id: "500013", name: "충남" },
+  "45": { id: "500014", name: "전북" }, "46": { id: "500015", name: "전남" },
+  "47": { id: "500016", name: "경북" }, "48": { id: "500017", name: "경남" },
+  "50": { id: "500018", name: "제주" }
+};
+
+const RONE_PROVINCE_NAMES: Array<[RegExp, string]> = [
+  [/서울/, "11"], [/부산/, "26"], [/대구/, "27"], [/인천/, "28"], [/광주/, "29"],
+  [/대전/, "30"], [/울산/, "31"], [/세종/, "36"], [/(?:경기|수원|성남|고양|용인)/, "41"],
+  [/(?:강원|춘천|원주|강릉)/, "42"], [/(?:충북|청주|충주)/, "43"], [/(?:충남|천안|아산)/, "44"],
+  [/(?:전북|전주|군산)/, "45"], [/(?:전남|목포|여수|순천)/, "46"], [/(?:경북|포항|경주|구미)/, "47"],
+  [/(?:경남|창원|김해|진주)/, "48"], [/제주/, "50"]
+];
+
+const RONE_SEOUL_MARKETS: Array<[RegExp, { id: string; name: string }]> = [
+  [/테헤란/, { id: "520025", name: "서울>강남>테헤란로" }],
+  [/강남대로/, { id: "520013", name: "서울>강남>강남대로" }],
+  [/교대(?:역)?/, { id: "520014", name: "서울>강남>교대역" }],
+  [/논현(?:역)?/, { id: "520016", name: "서울>강남>논현역" }],
+  [/도산대로/, { id: "520017", name: "서울>강남>도산대로" }],
+  [/(?:방배|내방)/, { id: "520018", name: "서울>강남>방배역/내방역" }],
+  [/신사(?:역)?/, { id: "520020", name: "서울>강남>신사역" }],
+  [/압구정/, { id: "520021", name: "서울>강남>압구정" }],
+  [/양재(?:역)?/, { id: "520023", name: "서울>강남>양재역" }],
+  [/청담/, { id: "520024", name: "서울>강남>청담" }],
+  [/(?:학동|강남구청)/, { id: "520026", name: "서울>강남>학동/강남구청역" }],
+  [/(?:잠실|송파)/, { id: "520061", name: "서울>기타>잠실/송파" }],
+  [/(?:홍대|합정)/, { id: "520034", name: "서울>영등포신촌>홍대/합정" }],
+  [/(?:신촌|이대)/, { id: "520032", name: "서울>영등포신촌>신촌/이대" }],
+  [/여의도/, { id: "520033", name: "서울>영등포신촌>영등포역" }],
+  [/(?:광화문|세종대로)/, { id: "520004", name: "서울>도심>광화문" }],
+  [/(?:종로|종각)/, { id: "520010", name: "서울>도심>종로" }]
+];
+
+function roneRentArea(context: ProviderContext) {
+  const displayName = context.displayName || "";
+  if ((context.administrativeCode || "").startsWith("11") || /서울/.test(displayName)) {
+    const market = RONE_SEOUL_MARKETS.find(([pattern]) => pattern.test(displayName));
+    if (market) return market[1];
+  }
+  const provincePrefix = context.administrativeCode?.slice(0, 2)
+    || RONE_PROVINCE_NAMES.find(([pattern]) => pattern.test(displayName))?.[1];
+  return (provincePrefix && RONE_PROVINCE_CODES[provincePrefix]) || { id: "500001", name: "전국" };
+}
+
+function previousQuarterKeys(count = 8) {
+  const now = new Date();
+  let year = now.getUTCFullYear();
+  let quarter = Math.ceil((now.getUTCMonth() + 1) / 3) - 1;
+  if (quarter < 1) { quarter = 4; year -= 1; }
+  return Array.from({ length: count }, () => {
+    const value = `${year}${String(quarter).padStart(2, "0")}`;
+    quarter -= 1;
+    if (quarter < 1) { quarter = 4; year -= 1; }
+    return value;
+  });
+}
+
+type RoneRentRow = {
+  CLS_FULLNM?: string;
+  CLS_NM?: string;
+  DTA_VAL?: number | string;
+  UI_NM?: string;
+  WRTTIME_DESC?: string;
+};
+
+function roneRows(payload: unknown) {
+  if (!payload || typeof payload !== "object") return [];
+  const sections = (payload as { SttsApiTblData?: unknown }).SttsApiTblData;
+  if (!Array.isArray(sections)) return [];
+  return sections.flatMap(section => {
+    if (!section || typeof section !== "object") return [];
+    const rows = (section as { row?: unknown }).row;
+    return Array.isArray(rows) ? rows.filter((row): row is RoneRentRow => Boolean(row) && typeof row === "object") : [];
+  });
+}
+
+async function fetchRoneRetailRent(context: ProviderContext): Promise<RentMarketData> {
+  const area = roneRentArea(context);
+  const source = "한국부동산원 R-ONE 상업용부동산 임대동향";
+  const spatialUnit = `${area.name} · 중대형 상가 1층 기준`;
+  try {
+    for (const quarter of previousQuarterKeys()) {
+      const url = new URL("https://www.reb.or.kr/r-one/openapi/SttsApiTblData.do");
+      url.searchParams.set("STATBL_ID", RONE_RETAIL_RENT_TABLE);
+      url.searchParams.set("DTACYCLE_CD", "QY");
+      url.searchParams.set("CLS_ID", area.id);
+      url.searchParams.set("ITM_ID", RONE_RETAIL_RENT_ITEM);
+      url.searchParams.set("WRTTIME_IDTFR_ID", quarter);
+      url.searchParams.set("Type", "json");
+      const key = process.env.RONE_API_KEY;
+      if (key) url.searchParams.set("KEY", key);
+      const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(7000) });
+      if (!response.ok) continue;
+      const rows = roneRows(await response.json());
+      const row = rows.find(item => Number.isFinite(Number(item.DTA_VAL)));
+      if (!row) continue;
+      const rentPerSquareMeterThousandWon = Number(row.DTA_VAL);
+      const monthlyRentPerPyeongManwon = rentPerSquareMeterThousandWon * 3.305785 / 10;
+      const score = Math.max(10, Math.min(90, Math.round(92 - monthlyRentPerPyeongManwon * 2.4)));
+      return {
+        status: "available", source, spatialUnit,
+        referenceDate: row.WRTTIME_DESC || quarter,
+        monthlyRentPerPyeongManwon: Math.round(monthlyRentPerPyeongManwon * 10) / 10,
+        score,
+        message: `${row.CLS_FULLNM || row.CLS_NM || area.name}의 ${row.WRTTIME_DESC || quarter} 중대형 상가 1층 기준 공표 임대료입니다. 개별 건물의 층·전용률·보증금 조건에 따라 실제 월세는 달라질 수 있습니다.`
+      };
+    }
+    return { status: "no_data", source, spatialUnit, message: "선택 지역의 최근 공식 중대형 상가 임대료 공표값을 찾지 못했습니다." };
+  } catch {
+    return { status: "error", source, spatialUnit, message: "한국부동산원 공식 임대료 자료를 불러오지 못했습니다. 잠시 후 다시 확인해주세요." };
+  }
+}
+
 async function fetchRentMarket(context: ProviderContext): Promise<RentMarketData> {
   const template = process.env.COMMERCIAL_RENT_API_URL_TEMPLATE;
   const key = process.env.COMMERCIAL_RENT_API_KEY;
   const source = process.env.COMMERCIAL_RENT_SOURCE_NAME || "상업용 부동산 임대 데이터 공급자";
   const spatialUnit = process.env.COMMERCIAL_RENT_SPATIAL_UNIT || "선택 반경";
   const base: RentMarketData = { status: "not_configured", source, spatialUnit, message: "계약·승인된 상가 임대료 API의 URL 템플릿과 승인키를 등록하면 비용효율이 활성화됩니다." };
-  if (!template || !key) return base;
+  if (!template || !key) return fetchRoneRetailRent(context);
   try {
     const payload = await fetchConfiguredPayload(template, key, process.env.COMMERCIAL_RENT_API_KEY_HEADER, context);
     const rows = findRows(payload).filter(row => withinRequestedArea(row, context));
@@ -384,10 +507,7 @@ export async function fetchExternalLocationData(context: ProviderContext): Promi
   const developmentRequiredVariables = process.env.DEVELOPMENT_PLAN_API_URL_TEMPLATE
     ? (process.env.DEVELOPMENT_PLAN_API_KEY || process.env.VWORLD_API_KEY ? [] : ["DEVELOPMENT_PLAN_API_KEY 또는 VWORLD_API_KEY"])
     : ["DEVELOPMENT_PLAN_API_URL_TEMPLATE", ...(process.env.DEVELOPMENT_PLAN_API_KEY || process.env.VWORLD_API_KEY ? [] : ["DEVELOPMENT_PLAN_API_KEY 또는 VWORLD_API_KEY"])];
-  const rentRequiredVariables = [
-    ...(process.env.COMMERCIAL_RENT_API_URL_TEMPLATE ? [] : ["COMMERCIAL_RENT_API_URL_TEMPLATE"]),
-    ...(process.env.COMMERCIAL_RENT_API_KEY ? [] : ["COMMERCIAL_RENT_API_KEY"])
-  ];
+  const rentRequiredVariables = rentMarket.status === "available" ? [] : ["RONE_API_KEY(선택)"];
   const dataConnections = [
     connection("hira", "HIRA 공식 의료기관", hiraMedical.status, hiraMedical.source, hiraMedical.message, ["HIRA_SERVICE_KEY"], HIRA_SETUP_URL, hiraMedical.referenceDate, "선택 반경"),
     connection("consumer", "소비력", consumerPower.status, consumerPower.source, consumerPower.message, ["SEOUL_OPEN_DATA_API_KEY"], SEOUL_CONSUMER_URL, consumerPower.referencePeriod, consumerPower.spatialUnit),
