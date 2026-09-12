@@ -143,6 +143,25 @@ export type DevelopmentPlanData = {
   message: string;
 };
 
+export type AiInsightItem = {
+  text: string;
+  evidenceIds: string[];
+};
+
+export type AiInterpretation = {
+  status: "generated" | "rules" | "not_configured" | "error";
+  provider: "vercel-ai-gateway" | "rules";
+  model?: string;
+  summary: string;
+  summaryEvidenceIds: string[];
+  strengths: AiInsightItem[];
+  risks: AiInsightItem[];
+  nextChecks: AiInsightItem[];
+  evidence: Array<{ id: string; label: string; value: string; source: string }>;
+  generatedAt: string;
+  message: string;
+};
+
 export type LocationAnalysis = {
   mode: "live";
   provider: "kakao" | "openstreetmap";
@@ -202,6 +221,7 @@ export type LocationAnalysis = {
   consumerPower?: ConsumerPowerData;
   rentMarket?: RentMarketData;
   developmentPlans?: DevelopmentPlanData;
+  aiInterpretation?: AiInterpretation;
   needsClientFetch?: boolean;
   osmQuery?: string;
 };

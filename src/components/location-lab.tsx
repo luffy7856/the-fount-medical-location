@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { specialties, type Specialty } from "@/data/specialties";
-import type { LivingPopulation, LocationAnalysis, LiveMetric, LivePlace } from "@/data/location-types";
+import type { AiInsightItem, AiInterpretation, LivingPopulation, LocationAnalysis, LiveMetric, LivePlace } from "@/data/location-types";
 import { analysisStorageId, loadSavedAnalyses, mergeSavedAnalysis, storeSavedAnalyses } from "@/data/saved-analyses";
 import { calculateOpeningPlan, DEFAULT_OPENING_INPUTS, type OpeningInputs } from "@/data/opening-plan";
 
@@ -167,7 +167,34 @@ function FinancialPlanningPanel({ analysis, inputs, onChange, compact = false }:
   </section>;
 }
 
-function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs }: { analysis: LocationAnalysis; onTab: (tab: PanelTab) => void; openingInputs: OpeningInputs; onOpeningInputs: (value: OpeningInputs) => void }) {
+function evidenceNames(interpretation: AiInterpretation, item: AiInsightItem) {
+  const byId = new Map(interpretation.evidence.map(fact => [fact.id, fact.label]));
+  return item.evidenceIds.map(id => byId.get(id)).filter((label): label is string => Boolean(label));
+}
+
+function GroundedInsight({ analysis, loading }: { analysis: LocationAnalysis; loading: boolean }) {
+  const interpretation = analysis.aiInterpretation;
+  const summary = interpretation?.summary || analysis.insight;
+  const strengths = interpretation?.strengths || analysis.strengths.map(text => ({ text, evidenceIds: [] }));
+  const risks = interpretation?.risks || analysis.risks.map(text => ({ text, evidenceIds: [] }));
+  const nextChecks = interpretation?.nextChecks || [];
+  const label = loading ? "AI 해석 중" : interpretation?.status === "generated" ? "AI 근거 해석" : "규칙 기반 해석";
+  const summarySources = interpretation ? interpretation.summaryEvidenceIds.map(id => interpretation.evidence.find(fact => fact.id === id)?.label).filter((value): value is string => Boolean(value)) : [];
+  const renderItems = (items: AiInsightItem[]) => items.map(item => <span key={item.text}><i>{item.text}</i>{interpretation && evidenceNames(interpretation, item).length > 0 && <small>근거 · {evidenceNames(interpretation, item).join(" · ")}</small>}</span>);
+  return <section className={`panel-section ai-insight ${interpretation?.status || "pending"}`}>
+    <div className="ai-heading"><Sparkles /><div><span>GROUNDED LOCATION INTERPRETATION</span><h3>현재 데이터에 대한 해석</h3></div><em className={loading ? "loading" : ""}>{loading && <Activity className="spin" />}{label}</em></div>
+    <p>{summary}</p>
+    {summarySources.length > 0 && <div className="insight-sources">{summarySources.map(source => <small key={source}>{source}</small>)}</div>}
+    <div className={`pros-cons ${nextChecks.length ? "three-columns" : ""}`}>
+      <div><b><Check /> 확인된 신호</b>{renderItems(strengths)}</div>
+      <div><b><AlertTriangle /> 확인 필요</b>{renderItems(risks)}</div>
+      {nextChecks.length > 0 && <div className="next-checks"><b><Search /> 다음 확인</b>{renderItems(nextChecks)}</div>}
+    </div>
+    <p className="insight-status">{interpretation?.message || "분석 완료 후 연결된 자료만으로 AI 해석을 요청합니다."}</p>
+  </section>;
+}
+
+function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs, aiLoading }: { analysis: LocationAnalysis; onTab: (tab: PanelTab) => void; openingInputs: OpeningInputs; onOpeningInputs: (value: OpeningInputs) => void; aiLoading: boolean }) {
   const stats = [
     ["전체 의료기관", formatCount(analysis, "medical"), analysis.hiraMedical?.status === "available" ? "HIRA 신고 기준 공식 수" : analysis.countLimits?.medical ? "카카오 조회 상한 도달" : "Kakao 장소검색 기준"],
     [`${analysis.specialty} ${analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? "공식 수" : "검색"}`, formatCount(analysis, "matchingSpecialty"), analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? "HIRA 진료과목 코드 기준" : "Kakao 분류·검색 기준"],
@@ -189,7 +216,7 @@ function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs }: { an
     <div className="stats-grid">{stats.map(([label, value, meta]) => <article key={label}><span>{label}</span><b>{value}</b><small>{meta}</small></article>)}</div>
     <section className="panel-section"><div className="panel-title"><div><span>CONNECTED FACTORS</span><h3>실제 데이터 연결 현황</h3></div><button onClick={() => onTab("competitors")}>경쟁병원 <ChevronRight /></button></div><MetricBars metrics={analysis.metrics} /></section>
     <DecisionEvidence analysis={analysis} />
-    <section className="panel-section ai-insight"><div className="ai-heading"><Sparkles /><div><span>LOCATION INTERPRETATION</span><h3>현재 데이터에 대한 해석</h3></div></div><p>{analysis.insight}</p><div className="pros-cons"><div><b><Check /> 확인된 신호</b>{analysis.strengths.map(item => <span key={item}>{item}</span>)}</div><div><b><AlertTriangle /> 확인 필요</b>{analysis.risks.map(item => <span key={item}>{item}</span>)}</div></div></section>
+    <GroundedInsight analysis={analysis} loading={aiLoading} />
     <DataConnections analysis={analysis} />
     <FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={onOpeningInputs} compact />
     <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><a className="next-step-link" href="https://www.thefount.co.kr/" target="_blank" rel="noopener noreferrer">정밀 개원분석 상담하기 <ArrowRight /></a></section>
@@ -304,6 +331,8 @@ export default function LocationLab() {
   const [populationLoading, setPopulationLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [reportDownloading, setReportDownloading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiInsightRequestRef = useRef(0);
   const specialtySelectRef = useRef<HTMLSelectElement>(null);
   const radiusSelectRef = useRef<HTMLSelectElement>(null);
   const openPicker = (ref: { current: HTMLSelectElement | null }) => {
@@ -312,8 +341,29 @@ export default function LocationLab() {
     else { select?.focus(); select?.click(); }
   };
 
+  const loadAiInsight = useCallback(async (source: LocationAnalysis) => {
+    const requestId = ++aiInsightRequestRef.current;
+    setAiLoading(true);
+    try {
+      const response = await fetch("/api/ai-insight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ analysis: { ...source, places: [] } })
+      });
+      const interpretation = await response.json() as AiInterpretation & { error?: string };
+      if (!response.ok) throw new Error(interpretation.error || "AI 해석을 불러오지 못했습니다.");
+      if (requestId !== aiInsightRequestRef.current) return;
+      setAnalysis(current => current.analyzedAt === source.analyzedAt ? { ...current, aiInterpretation: interpretation } : current);
+      setSaved(current => mergeSavedAnalysis(current, { ...source, aiInterpretation: interpretation }));
+    } catch {
+      // 핵심 분석은 그대로 유지하고 서버의 다음 요청에서 안전한 대체 해석을 다시 시도합니다.
+    } finally {
+      if (requestId === aiInsightRequestRef.current) setAiLoading(false);
+    }
+  }, []);
+
   const runAnalysis = useCallback(async (payload: { address?: string; latitude?: number; longitude?: number; specialty?: Specialty; radiusMeters?: number }) => {
-    setLoading(true); setError(""); setSelectedPlace(null);
+    aiInsightRequestRef.current += 1; setAiLoading(false); setLoading(true); setError(""); setSelectedPlace(null);
     try {
       const requestBody = {
         ...(typeof payload.address === "string" ? { address: payload.address } : {}),
@@ -335,10 +385,10 @@ export default function LocationLab() {
         if (!completedResponse.ok) throw new Error(completed.error || "조회 결과를 분석하지 못했습니다.");
         result = completed as LocationAnalysis;
       }
-      setAnalysis(result); setSpecialty(result.specialty); setAddressInput(result.location.displayName.split(",")[0]); setSaved(current => mergeSavedAnalysis(current, result)); setTab("overview"); setMobileFilter(false);
+      setAnalysis(result); setSpecialty(result.specialty); setAddressInput(result.location.displayName.split(",")[0]); setSaved(current => mergeSavedAnalysis(current, result)); setTab("overview"); setMobileFilter(false); void loadAiInsight(result);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "분석 중 오류가 발생했습니다."); }
     finally { setLoading(false); }
-  }, [specialty, radiusMeters, populationDate, populationHour]);
+  }, [specialty, radiusMeters, populationDate, populationHour, loadAiInsight]);
 
   useEffect(() => { setSaved(loadSavedAnalyses()); setSavedReady(true); }, []);
   useEffect(() => { if (savedReady) storeSavedAnalyses(saved); }, [saved, savedReady]);
@@ -456,7 +506,7 @@ export default function LocationLab() {
           <button type="button" className="mobile-print" onClick={printReport} title="현재 화면 인쇄"><Printer /></button>
         </nav>
         <div key={tab} className="panel-view">
-          {tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} />}
+          {tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} aiLoading={aiLoading} />}
           {tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}
           {tab === "forecast" && <ForecastPanel analysis={analysis} />}
           {tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}
