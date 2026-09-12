@@ -616,7 +616,7 @@ function buildAnalysis(provider: "kakao" | "openstreetmap", displayName: string,
     { label: "경쟁환경", value: competition, note: `Kakao 분류·검색 ${counts.matchingSpecialty}곳`, color: COLORS[1] },
     { label: "소비력", value: consumer, note: consumer !== null ? `소비 ${externalData?.consumerPower.percentile}% · 의료비 ${externalData?.consumerPower.medicalPercentile !== undefined ? `${externalData.consumerPower.medicalPercentile}%` : "자료 없음"} 백분위` : externalData?.consumerPower.message || "소비 데이터 연동 필요", color: COLORS[2] },
     { label: "접근성", value: access, note: `지하철역 ${transit} · 주차 ${parking}`, color: COLORS[3] },
-    { label: "비용효율", value: costEfficiency, note: costEfficiency !== null ? `평당 월세 중앙값 ${externalData?.rentMarket.monthlyRentPerPyeongManwon?.toLocaleString()}만원` : externalData?.rentMarket.message || "임대료 데이터 연동 필요", color: COLORS[4] },
+    { label: "비용효율", value: costEfficiency, note: costEfficiency !== null ? `평당 월세 참고값 ${externalData?.rentMarket.monthlyRentPerPyeongManwon?.toLocaleString()}만원 · ${externalData?.rentMarket.spatialUnit || "출처별 집계 범위"}. ${externalData?.rentMarket.message || "개별 건물의 실제 임대조건과 비교하세요."}` : externalData?.rentMarket.message || "임대료 데이터 연동 필요", color: COLORS[4] },
     { label: "성장성", value: growth, note: planGrowth !== null ? `SGIS 추세 + 개발계획 ${externalData?.developmentPlans.plans.length}건` : growthForecast?.status === "available" ? `SGIS ${growthForecast.historical[0]?.year}~${growthForecast.baseYear}년 추세 기반` : externalData?.developmentPlans.message || "개발계획 데이터 연동 필요", color: COLORS[5] }
   ];
   const regionalProfile = buildRegionalProfile(demographics, populationProfile, growthForecast, regionalSignals?.elementarySchools, regionalSignals?.childcareFacilities, specialty, externalData);
