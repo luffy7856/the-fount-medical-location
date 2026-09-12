@@ -139,5 +139,12 @@ export default function LiveMap({ analysis, activeKinds, populationActive, selec
       pathOptions={{ color: "#fff", fillColor: COLORS[place.kind], fillOpacity: .95, weight: selected?.id === place.id ? 4 : 2 }}
       eventHandlers={{ click: () => onPlace(place) }}
     ><Popup><strong>{place.name}</strong><br />{place.specialty || place.kind}<br />{place.distanceMeters.toLocaleString()}m</Popup></CircleMarker>)}
+    {activeKinds.has("development") && analysis.developmentPlans?.status === "available" && analysis.developmentPlans.plans.filter(plan => plan.latitude !== undefined && plan.longitude !== undefined).map(plan => <CircleMarker
+      key={`development-${plan.id}`}
+      center={[plan.latitude!, plan.longitude!]}
+      radius={8}
+      bubblingMouseEvents={false}
+      pathOptions={{ color: "#fff", fillColor: "#d28c24", fillOpacity: .95, weight: 3, dashArray: "3 2" }}
+    ><Popup><strong>{plan.name}</strong><br />{plan.category}<br />{plan.status}{plan.distanceMeters !== undefined ? <><br />약 {plan.distanceMeters.toLocaleString()}m</> : null}<br /><small>VWorld 공식 계획공간 정보</small></Popup></CircleMarker>)}
   </MapContainer>;
 }

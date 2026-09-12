@@ -14,7 +14,7 @@ export function buildInsightEvidence(analysis: LocationAnalysis): InsightEvidenc
   addFact(facts, "score", "입지 참고점수", analysis.confidence < 90 ? `${analysis.observedScore}점 · 후보지 비교용` : `${analysis.observedScore}점 / ${analysis.grade}등급`, "확인된 지표 가중평균");
   addFact(facts, "coverage", "데이터 반영범위", `${analysis.confidence}% (예측 정확도 아님)`, "THE FOUNT 분석 범위");
   addFact(facts, "medical", "전체 의료기관", `${analysis.counts.medical.toLocaleString()}곳${analysis.countLimits?.medical ? " 이상" : ""}`, official ? "HIRA 신고 기준" : `${analysis.provider === "kakao" ? "Kakao" : "OpenStreetMap"} 장소검색`);
-  addFact(facts, "specialty", `${analysis.specialty} 경쟁기관`, `${analysis.counts.matchingSpecialty.toLocaleString()}곳${analysis.countLimits?.matchingSpecialty ? " 이상" : ""}`, analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? "HIRA 진료과목 코드" : "장소명·분류 검색");
+  addFact(facts, "specialty", `${analysis.specialty} 직접 경쟁기관`, `${analysis.counts.matchingSpecialty.toLocaleString()}곳${analysis.countLimits?.matchingSpecialty ? " 이상" : ""}`, "Kakao 장소명·분류 검색");
   addFact(facts, "pharmacy", "약국", `${analysis.counts.pharmacy.toLocaleString()}곳${analysis.countLimits?.pharmacy ? " 이상" : ""}`, analysis.hiraMedical?.pharmacyCount !== undefined ? "HIRA 약국정보" : "장소검색");
   addFact(facts, "transit", "지하철역", `${analysis.counts.transit.toLocaleString()}곳`, "지도 장소검색");
   addFact(facts, "parking", "주차시설", `${analysis.counts.parking.toLocaleString()}곳${analysis.countLimits?.parking ? " 이상" : ""}`, "지도 장소검색");
@@ -39,6 +39,15 @@ export function buildInsightEvidence(analysis: LocationAnalysis): InsightEvidenc
   if (analysis.developmentPlans?.status === "available") {
     addFact(facts, "development", "주변 개발계획", `${analysis.developmentPlans.plans.length.toLocaleString()}건 · 반경 ${analysis.developmentPlans.radiusMeters.toLocaleString()}m`, analysis.developmentPlans.source);
   }
+  if (analysis.regionalProfile) {
+    const profile = analysis.regionalProfile;
+    const total = analysis.demographics?.residentPopulation || 0;
+    const share = (value?: number) => value !== undefined && total > 0 ? `${Math.round(value / total * 1000) / 10}%` : "자료 없음";
+    addFact(facts, "region_character", "지역 성격", `${profile.character} · ${profile.characterReason}`, profile.source);
+    addFact(facts, "sex_ratio", "남녀 구성", `남성 ${share(profile.malePopulation)} · 여성 ${share(profile.femalePopulation)}`, "SGIS 성별 인구");
+    addFact(facts, "age_profile", "연령 구성", `15세 미만 ${share(profile.childPopulation)} · 20~39세 ${share(profile.youngAdultPopulation)} · 40~59세 ${share(profile.middleAgePopulation)} · 65세 이상 ${share(profile.seniorPopulation)}`, "SGIS 연령별 인구");
+    addFact(facts, "schools", "아동 생활시설", `초등학교 ${profile.elementarySchools ?? "자료 없음"}곳 · 어린이집·유치원 ${profile.childcareFacilities ?? "자료 없음"}곳`, "Kakao 장소검색");
+  }
   analysis.metrics.filter(metric => metric.value !== null).forEach((metric, index) => {
     addFact(facts, `metric_${index}`, `${metric.label} 점수`, `${metric.value}점 · ${metric.note}`, "THE FOUNT 산식");
   });
@@ -60,14 +69,14 @@ export function buildRuleInterpretation(analysis: LocationAnalysis, status: AiIn
     const candidates = index === 0 ? ["specialty", "medical"] : index === 1 ? ["living", "resident", "coverage"] : ["coverage", "medical"];
     return item(text, candidates.filter(id => evidenceIds.has(id)).slice(0, 2));
   });
-  const missing = analysis.dataConnections?.filter(connection => connection.status !== "available").slice(0, 3) || [];
-  const nextChecks = missing.length
-    ? missing.map(connection => item(connection.id === "rent"
-      ? "실제 임대조건을 확인해 비용효율 판단을 보강하세요."
-      : connection.id === "development"
-        ? "주변 개발계획의 확정 여부를 확인해 성장성 판단을 보강하세요."
-        : `${connection.label} 자료를 추가 확인해 판단 범위를 넓히세요.`, ["coverage"]))
-    : [item("현장 보행 동선과 실제 임대조건을 대조한 뒤 최종 계약 여부를 결정하세요.", ["location", "coverage"])];
+  const nextChecks = (analysis.regionalProfile?.doctorChecks || [
+    "선택 진료과의 핵심 환자층과 실제 거주·생활인구가 맞는지 확인하세요.",
+    "경쟁병원의 진료내용과 운영시간, 환자 대기 수준을 직접 비교하세요.",
+    "건물 가시성·엘리베이터·주차와 실제 임대조건을 현장에서 확인하세요."
+  ]).slice(0, 3).map((text, index) => item(text, [
+    index === 0 ? (evidenceIds.has("age_profile") ? "age_profile" : "resident") : index === 1 ? "specialty" : "location",
+    index === 2 && evidenceIds.has("rent") ? "rent" : "coverage"
+  ].filter(id => evidenceIds.has(id))));
   return {
     status,
     provider: "rules",

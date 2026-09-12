@@ -129,6 +129,8 @@ export type DevelopmentPlanItem = {
   name: string;
   category: string;
   status: string;
+  latitude?: number;
+  longitude?: number;
   distanceMeters?: number;
   targetDate?: string;
 };
@@ -160,6 +162,24 @@ export type AiInterpretation = {
   evidence: Array<{ id: string; label: string; value: string; source: string }>;
   generatedAt: string;
   message: string;
+};
+
+export type RegionalProfile = {
+  source: "SGIS · Kakao Local";
+  year: number;
+  areaName: string;
+  malePopulation?: number;
+  femalePopulation?: number;
+  childPopulation?: number;
+  youngAdultPopulation?: number;
+  middleAgePopulation?: number;
+  seniorPopulation?: number;
+  elementarySchools?: number;
+  childcareFacilities?: number;
+  character: string;
+  characterReason: string;
+  specialtyFit: string[];
+  doctorChecks: string[];
 };
 
 export type LocationAnalysis = {
@@ -214,6 +234,7 @@ export type LocationAnalysis = {
     businesses: number;
     averageAge: number | null;
   };
+  regionalProfile?: RegionalProfile;
   livingPopulation?: LivingPopulation;
   growthForecast?: GrowthForecast;
   dataConnections?: DataConnection[];

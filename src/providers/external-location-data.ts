@@ -12,6 +12,14 @@ const RENT_GUIDE_URL = "https://www.reb.or.kr/r-one/portal/openapi/openApiIntroP
 const DEVELOPMENT_GUIDE_URL = "https://www.vworld.kr/dtna/dtna_apiSvcFc_s001.do";
 const RONE_RETAIL_RENT_TABLE = "T244363134858603";
 const RONE_RETAIL_RENT_ITEM = "100001";
+const VWORLD_DATA_ENDPOINT = "https://api.vworld.kr/req/data";
+
+const VWORLD_PLAN_LAYERS = [
+  { id: "LT_C_LHZONE", category: "LH 사업지구" },
+  { id: "LT_C_UPISUQ161", category: "지구단위계획" },
+  { id: "LT_C_UD601", category: "주거환경개선지구" },
+  { id: "LT_C_UB901", category: "시장정비구역" }
+] as const;
 
 type ProviderContext = {
   latitude: number;
@@ -30,12 +38,6 @@ export type ExternalLocationData = {
   dataConnections: DataConnection[];
 };
 
-const SPECIALTY_CODES: Partial<Record<Specialty, string>> = {
-  "내과": "01", "정형외과": "05", "성형외과": "08",
-  "산부인과": "10", "소아청소년과": "11", "안과": "12", "이비인후과": "13",
-  "피부과": "14", "치과": "49"
-} as Partial<Record<Specialty, string>>;
-
 function todayInSeoul() {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(new Date());
 }
@@ -53,7 +55,7 @@ function safeServiceKey(key: string) {
   try { return decodeURIComponent(key); } catch { return key; }
 }
 
-async function fetchHiraCount(baseUrl: string, key: string, context: ProviderContext, specialtyCode?: string) {
+async function fetchHiraCount(baseUrl: string, key: string, context: ProviderContext) {
   const url = new URL(baseUrl);
   url.searchParams.set("serviceKey", safeServiceKey(key));
   url.searchParams.set("pageNo", "1");
@@ -61,7 +63,6 @@ async function fetchHiraCount(baseUrl: string, key: string, context: ProviderCon
   url.searchParams.set("xPos", String(context.longitude));
   url.searchParams.set("yPos", String(context.latitude));
   url.searchParams.set("radius", String(context.radiusMeters));
-  if (specialtyCode) url.searchParams.set("dgsbjtCd", specialtyCode);
   const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(9000) });
   const xml = await response.text();
   if (!response.ok || /SERVICE_(?:ACCESS_DENIED|KEY_IS_NOT_REGISTERED)|PERMISSION_DENIED/i.test(xml)) throw new Error("승인키 권한을 확인해주세요.");
@@ -79,16 +80,14 @@ async function fetchHiraMedical(context: ProviderContext): Promise<HiraMedicalDa
   const hospitalUrl = process.env.HIRA_HOSPITAL_API_URL || "https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList";
   const pharmacyUrl = process.env.HIRA_PHARMACY_API_URL || "https://apis.data.go.kr/B551182/pharmacyInfoService/getParmacyBasisList";
   try {
-    const specialtyCode = SPECIALTY_CODES[context.specialty];
-    const [medicalCount, matchingSpecialtyCount, pharmacyCount] = await Promise.all([
+    const [medicalCount, pharmacyCount] = await Promise.all([
       fetchHiraCount(hospitalUrl, key, context),
-      specialtyCode ? fetchHiraCount(hospitalUrl, key, context, specialtyCode).catch(() => undefined) : Promise.resolve(undefined),
       fetchHiraCount(pharmacyUrl, key, context).catch(() => undefined)
     ]);
     return {
       status: "available", source: "건강보험심사평가원 병원정보서비스", referenceDate: todayInSeoul(),
-      radiusMeters: context.radiusMeters, medicalCount, matchingSpecialtyCount, pharmacyCount,
-      message: `반경 ${context.radiusMeters.toLocaleString()}m의 HIRA 신고 기준 의료기관 수입니다.${pharmacyCount === undefined ? " 약국은 별도 API 승인 확인 전까지 기존 지도 검색 수를 표시합니다." : " 약국 수도 HIRA 신고 기준입니다."}${matchingSpecialtyCount === undefined ? " 진료과별 수는 기존 지도 검색 기준입니다." : ""}`
+      radiusMeters: context.radiusMeters, medicalCount, pharmacyCount,
+      message: `반경 ${context.radiusMeters.toLocaleString()}m의 HIRA 신고 기준 전체 의료기관 수입니다.${pharmacyCount === undefined ? " 약국은 별도 API 승인 확인 전까지 기존 지도 검색 수를 표시합니다." : " 약국 수도 HIRA 신고 기준입니다."} 진료과목 신고기관 수는 복수 진료과목을 포함하므로 직접 경쟁 수에는 사용하지 않습니다.`
     };
   } catch (error) {
     return { status: "error", source: "건강보험심사평가원 병원정보서비스", referenceDate: todayInSeoul(), radiusMeters: context.radiusMeters, message: error instanceof Error ? error.message : "HIRA 데이터를 불러오지 못했습니다." };
@@ -355,7 +354,6 @@ const RONE_SEOUL_MARKETS: Array<[RegExp, { id: string; name: string }]> = [
   [/(?:잠실|송파)/, { id: "520061", name: "서울>기타>잠실/송파" }],
   [/(?:홍대|합정)/, { id: "520034", name: "서울>영등포신촌>홍대/합정" }],
   [/(?:신촌|이대)/, { id: "520032", name: "서울>영등포신촌>신촌/이대" }],
-  [/여의도/, { id: "520033", name: "서울>영등포신촌>영등포역" }],
   [/(?:광화문|세종대로)/, { id: "520004", name: "서울>도심>광화문" }],
   [/(?:종로|종각)/, { id: "520010", name: "서울>도심>종로" }]
 ];
@@ -465,12 +463,129 @@ async function fetchRentMarket(context: ProviderContext): Promise<RentMarketData
   } catch (error) { return { ...base, status: "error", message: error instanceof Error ? `임대료 연결 점검: ${error.message}` : "임대료 공급자 응답 또는 승인키를 확인해주세요." }; }
 }
 
+type BoundingBox = [minLongitude: number, minLatitude: number, maxLongitude: number, maxLatitude: number];
+
+function vworldBoundingBoxes(context: ProviderContext): BoundingBox[] {
+  const latitudeDelta = context.radiusMeters / 111_320;
+  const longitudeDelta = context.radiusMeters / (111_320 * Math.max(.2, Math.cos(context.latitude * Math.PI / 180)));
+  const box: BoundingBox = [
+    context.longitude - longitudeDelta,
+    context.latitude - latitudeDelta,
+    context.longitude + longitudeDelta,
+    context.latitude + latitudeDelta
+  ];
+  // VWorld 공간검색은 한 번에 넓은 면적을 요청하면 제한될 수 있습니다.
+  // 3km 조회만 네 개의 3km x 3km 타일로 나누면 각 요청이 10km² 미만입니다.
+  if (context.radiusMeters <= 1_500) return [box];
+  const [minLongitude, minLatitude, maxLongitude, maxLatitude] = box;
+  const middleLongitude = (minLongitude + maxLongitude) / 2;
+  const middleLatitude = (minLatitude + maxLatitude) / 2;
+  return [
+    [minLongitude, minLatitude, middleLongitude, middleLatitude],
+    [middleLongitude, minLatitude, maxLongitude, middleLatitude],
+    [minLongitude, middleLatitude, middleLongitude, maxLatitude],
+    [middleLongitude, middleLatitude, maxLongitude, maxLatitude]
+  ];
+}
+
+async function fetchVworldLayer(key: string, layer: typeof VWORLD_PLAN_LAYERS[number], box: BoundingBox) {
+  const url = new URL(VWORLD_DATA_ENDPOINT);
+  url.searchParams.set("service", "data");
+  url.searchParams.set("version", "2.0");
+  url.searchParams.set("request", "GetFeature");
+  url.searchParams.set("data", layer.id);
+  url.searchParams.set("key", key);
+  url.searchParams.set("domain", process.env.VWORLD_API_DOMAIN || "https://the-fount-medical-location.vercel.app");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("size", "1000");
+  url.searchParams.set("page", "1");
+  url.searchParams.set("geometry", "true");
+  url.searchParams.set("attribute", "true");
+  url.searchParams.set("crs", "EPSG:4326");
+  url.searchParams.set("geomFilter", `BOX(${box.join(",")})`);
+  const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(8_000) });
+  if (!response.ok) throw new Error(`${layer.category} HTTP ${response.status}`);
+  const payload = await response.json() as Record<string, unknown>;
+  const responseBlock = payload.response;
+  if (responseBlock && typeof responseBlock === "object") {
+    const status = String((responseBlock as Record<string, unknown>).status || "").toUpperCase();
+    if (status && status !== "OK" && status !== "SUCCESS") {
+      const error = (responseBlock as Record<string, unknown>).error;
+      const errorText = error && typeof error === "object"
+        ? firstText(error as Record<string, unknown>, ["text", "message", "code"])
+        : undefined;
+      throw new Error(errorText || `${layer.category} 조회 권한을 확인해주세요.`);
+    }
+  }
+  return findRows(payload).map(row => ({ ...row, __vworldCategory: layer.category, __vworldLayer: layer.id }));
+}
+
+function vworldPlanName(row: Record<string, unknown>) {
+  return firstText(row, [
+    "uname", "UNAME", "unm", "UNM", "name", "NAME", "dgm_nm", "DGM_NM",
+    "zone_nm", "ZONE_NM", "lhzn_nm", "LHZN_NM", "biz_nm", "BIZ_NM",
+    "bsns_nm", "BSNS_NM", "area_nm", "AREA_NM", "jigu_nm", "JIGU_NM",
+    "사업명", "지구명", "구역명", "시설명"
+  ]);
+}
+
+async function fetchVworldPlans(context: ProviderContext, key: string): Promise<DevelopmentPlanData> {
+  const source = "VWorld 2D 데이터 API (국토교통부·LH)";
+  const boxes = vworldBoundingBoxes(context);
+  const results = await Promise.allSettled(
+    VWORLD_PLAN_LAYERS.flatMap(layer => boxes.map(box => fetchVworldLayer(key, layer, box)))
+  );
+  const fulfilled = results.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+  if (!fulfilled.length) {
+    const firstFailure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    throw firstFailure?.reason instanceof Error ? firstFailure.reason : new Error("VWorld 계획공간 조회에 실패했습니다.");
+  }
+  const deduped = new Map<string, DevelopmentPlanItem>();
+  for (const row of fulfilled.flat()) {
+    const name = vworldPlanName(row);
+    if (!name) continue;
+    const coordinate = coordinateFromRow(row);
+    const category = firstText(row, ["__vworldCategory"]) || "개발·계획 공간정보";
+    const rawId = firstText(row, ["id", "ID", "fid", "FID", "gml_id", "GML_ID", "objectid", "OBJECTID"]);
+    const item: DevelopmentPlanItem = {
+      id: rawId || `${firstText(row, ["__vworldLayer"]) || "vworld"}-${name}`,
+      name,
+      category,
+      status: "공간계획 지정정보",
+      latitude: coordinate?.latitude,
+      longitude: coordinate?.longitude,
+      distanceMeters: coordinate ? distanceMeters(context, coordinate) : undefined
+    };
+    const dedupeKey = `${item.category}|${item.name}|${Math.round((item.latitude || 0) * 10_000)}|${Math.round((item.longitude || 0) * 10_000)}`;
+    if (!deduped.has(dedupeKey)) deduped.set(dedupeKey, item);
+  }
+  const plans = Array.from(deduped.values())
+    .filter(plan => plan.distanceMeters === undefined || plan.distanceMeters <= context.radiusMeters * 1.25)
+    .sort((a, b) => (a.distanceMeters ?? Number.MAX_SAFE_INTEGER) - (b.distanceMeters ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, 30);
+  if (!plans.length) {
+    return {
+      status: "no_data", source, referenceDate: todayInSeoul(), radiusMeters: context.radiusMeters, plans: [],
+      message: "선택 반경에서 VWorld의 지구단위계획·LH 사업지구·정비구역 공간정보를 찾지 못했습니다."
+    };
+  }
+  return {
+    status: "available", source, referenceDate: todayInSeoul(), radiusMeters: context.radiusMeters, plans,
+    message: `선택 반경에서 공식 계획공간 ${plans.length}건을 확인했습니다. 지정구역 정보이며 착공·준공 일정이나 사업 확정 여부를 뜻하지 않아 성장성 점수에는 직접 반영하지 않습니다.`
+  };
+}
+
 async function fetchDevelopmentPlans(context: ProviderContext): Promise<DevelopmentPlanData> {
   const template = process.env.DEVELOPMENT_PLAN_API_URL_TEMPLATE;
   const key = process.env.DEVELOPMENT_PLAN_API_KEY || process.env.VWORLD_API_KEY;
   const source = process.env.DEVELOPMENT_PLAN_SOURCE_NAME || (process.env.VWORLD_API_KEY ? "VWorld 연계 국토·도시 공간정보" : "국토·도시계획 데이터 공급자");
-  const base: DevelopmentPlanData = { status: "not_configured", source, radiusMeters: context.radiusMeters, plans: [], message: key && !template ? "운영키는 준비됐습니다. 승인된 개발계획 데이터셋의 URL 템플릿을 등록하면 즉시 활성화됩니다." : "운영키와 개발계획 데이터셋 URL 템플릿을 등록하면 성장성에 실제 공개 계획이 추가됩니다." };
-  if (!template || !key) return base;
+  const base: DevelopmentPlanData = { status: "not_configured", source, radiusMeters: context.radiusMeters, plans: [], message: "VWorld 운영키가 승인되면 지구단위계획·LH 사업지구·정비구역 공간정보가 활성화됩니다." };
+  if (!key) return base;
+  if (!template && process.env.VWORLD_API_KEY) {
+    try { return await fetchVworldPlans(context, process.env.VWORLD_API_KEY); }
+    catch (error) { return { ...base, status: "error", message: error instanceof Error ? `VWorld 연결 점검: ${error.message}` : "VWorld 운영키 또는 승인 도메인을 확인해주세요." }; }
+  }
+  if (!template) return { ...base, message: "승인된 개발계획 공급자의 URL 템플릿을 등록하면 활성화됩니다." };
   try {
     const payload = await fetchConfiguredPayload(template, key, process.env.DEVELOPMENT_PLAN_API_KEY_HEADER, context);
     const rows = findRows(payload).filter(row => withinRequestedArea(row, context));
@@ -504,9 +619,11 @@ export async function fetchExternalLocationData(context: ProviderContext): Promi
   const [hiraMedical, consumerPower, rentMarket, developmentPlans] = await Promise.all([
     fetchHiraMedical(context), fetchSeoulConsumerPower(context), fetchRentMarket(context), fetchDevelopmentPlans(context)
   ]);
-  const developmentRequiredVariables = process.env.DEVELOPMENT_PLAN_API_URL_TEMPLATE
-    ? (process.env.DEVELOPMENT_PLAN_API_KEY || process.env.VWORLD_API_KEY ? [] : ["DEVELOPMENT_PLAN_API_KEY 또는 VWORLD_API_KEY"])
-    : ["DEVELOPMENT_PLAN_API_URL_TEMPLATE", ...(process.env.DEVELOPMENT_PLAN_API_KEY || process.env.VWORLD_API_KEY ? [] : ["DEVELOPMENT_PLAN_API_KEY 또는 VWORLD_API_KEY"])];
+  const developmentRequiredVariables = process.env.VWORLD_API_KEY
+    ? []
+    : process.env.DEVELOPMENT_PLAN_API_URL_TEMPLATE
+      ? (process.env.DEVELOPMENT_PLAN_API_KEY ? [] : ["DEVELOPMENT_PLAN_API_KEY"])
+      : ["VWORLD_API_KEY"];
   const rentRequiredVariables = rentMarket.status === "available" ? [] : ["RONE_API_KEY(선택)"];
   const dataConnections = [
     connection("hira", "HIRA 공식 의료기관", hiraMedical.status, hiraMedical.source, hiraMedical.message, ["HIRA_SERVICE_KEY"], HIRA_SETUP_URL, hiraMedical.referenceDate, "선택 반경"),

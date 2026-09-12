@@ -36,7 +36,7 @@ const EMPTY_ANALYSIS: LocationAnalysis = {
     { id: "hira", label: "HIRA 공식 의료기관", status: "not_configured", source: "건강보험심사평가원 병원정보서비스", message: "분석 후 승인키 연결 상태를 확인합니다.", requiredEnvironmentVariables: ["HIRA_SERVICE_KEY"], setupUrl: "https://www.data.go.kr/data/15001698/openapi.do" },
     { id: "consumer", label: "소비력", status: "not_configured", source: "서울시 상권분석서비스(소비-행정동)", message: "분석 후 서울시 소비 데이터 상태를 확인합니다.", requiredEnvironmentVariables: ["SEOUL_OPEN_DATA_API_KEY"], setupUrl: "https://data.seoul.go.kr/dataList/OA-22166/S/1/datasetView.do" },
     { id: "rent", label: "상가 임대료", status: "not_configured", source: "상업용 부동산 임대 데이터 공급자", message: "승인된 임대료 공급자 연결이 필요합니다.", requiredEnvironmentVariables: ["COMMERCIAL_RENT_API_KEY", "COMMERCIAL_RENT_API_URL_TEMPLATE"], setupUrl: "https://www.data.go.kr/tcs/dss/selectDataSetList.do?keyword=%EC%83%81%EA%B0%80%20%EC%9E%84%EB%8C%80%EB%A3%8C" },
-    { id: "development", label: "개발계획", status: "not_configured", source: "국토·도시계획 데이터 공급자", message: "승인된 실제 계획 데이터셋 연결이 필요합니다.", requiredEnvironmentVariables: ["DEVELOPMENT_PLAN_API_URL_TEMPLATE", "DEVELOPMENT_PLAN_API_KEY 또는 VWORLD_API_KEY"], setupUrl: "https://www.vworld.kr/dtna/dtna_apiSvcFc_s001.do" }
+    { id: "development", label: "개발·계획 공간", status: "not_configured", source: "VWorld 2D 데이터 API", message: "VWorld 운영키 승인 후 공식 계획공간 정보가 표시됩니다.", requiredEnvironmentVariables: ["VWORLD_API_KEY"], setupUrl: "https://www.vworld.kr/dtna/dtna_apiSvcFc_s001.do" }
   ]
 };
 
@@ -44,7 +44,8 @@ const LIVE_LAYERS = [
   { id: "hospital", label: "의료기관", color: "#e55e48" },
   { id: "pharmacy", label: "약국", color: "#3182ce" },
   { id: "transit", label: "지하철역", color: "#0f937d" },
-  { id: "parking", label: "주차시설", color: "#805ad5" }
+  { id: "parking", label: "주차시설", color: "#805ad5" },
+  { id: "development", label: "개발·계획 공간", color: "#d28c24" }
 ];
 
 function defaultPopulationDate() {
@@ -97,15 +98,15 @@ function DecisionEvidence({ analysis }: { analysis: LocationAnalysis }) {
   const excluded = analysis.metrics.filter(metric => metric.value === null).map(metric => metric.label);
   const connectedWeight = connected.reduce((sum, metric) => sum + (FACTOR_WEIGHTS[metric.label] || 0), 0);
   const decision = analysis.confidence < 90
-    ? { label: "후보지 비교용", tone: "hold", text: "현재 확인된 실제 데이터로 후보지의 상대적인 장단점을 비교할 수 있습니다. 계약 전에는 현장 동선과 실제 임대조건을 함께 확인하세요." }
+    ? { label: "비교 후보로 보세요", tone: "hold", text: "지금 바로 계약을 결정하기보다, 같은 진료과의 다른 후보지 한두 곳과 나란히 비교하기 좋은 단계입니다." }
     : analysis.observedScore >= 75
-      ? { label: "우선 검토", tone: "positive", text: "연결된 데이터에서는 긍정 신호가 우세합니다. 현장 동선과 실제 임대조건을 확인한 뒤 개원계획 검토를 진행할 수 있습니다." }
+      ? { label: "우선 현장확인 후보", tone: "positive", text: "수요와 접근성 등에서 좋은 신호가 더 많습니다. 실제 건물과 경쟁병원을 확인할 가치가 있는 후보지입니다." }
       : analysis.observedScore >= 60
-        ? { label: "비교 검토", tone: "neutral", text: "장점과 위험요인이 혼재합니다. 동일 진료과 경쟁과 임대조건을 다른 후보지와 비교해야 합니다." }
-        : { label: "신중 검토", tone: "negative", text: "현재 확인된 수요·경쟁·접근성 신호가 충분하지 않습니다. 대체 후보지 비교를 우선합니다." };
+        ? { label: "다른 후보와 비교", tone: "neutral", text: "장점도 있지만 경쟁이나 비용 부담도 있습니다. 한 곳만 보고 결정하지 말고 다른 자리와 조건을 비교하세요." }
+        : { label: "다른 자리도 함께 검토", tone: "negative", text: "현재 자료에서는 부담 요인이 더 크게 보입니다. 계약 전에 대체 후보지를 먼저 찾아 비교하는 편이 안전합니다." };
   return <section className="panel-section decision-evidence">
     <div className="panel-title"><div><span>EVIDENCE TO DECISION</span><h3>입지 판단 근거와 최종 결론</h3></div></div>
-    <article className={`final-decision ${decision.tone}`}><span>현재 판단</span><h3>{decision.label}</h3><p>{decision.text}</p><small>연결 데이터 기준 참고점수 {analysis.observedScore}점 · 반영 범위 {analysis.confidence}% · 분석 반경 {analysis.radiusMeters.toLocaleString()}m</small></article>
+    <article className={`final-decision ${decision.tone}`}><span>쉽게 보는 최종 결론</span><h3>{decision.label}</h3><p>{decision.text}</p><small>입지 참고점수 {analysis.observedScore}점 · 확인된 자료 반영 {analysis.confidence}% · 반경 {analysis.radiusMeters.toLocaleString()}m</small></article>
     <details className="evidence-details">
       <summary>점수 산정 근거 보기</summary>
       <div className="evidence-flow"><span>실제 원자료</span><ArrowRight /><span>항목별 0~100</span><ArrowRight /><span>가중평균</span><ArrowRight /><strong>{decision.label}</strong></div>
@@ -118,6 +119,33 @@ function DecisionEvidence({ analysis }: { analysis: LocationAnalysis }) {
       <div className="weight-coverage"><div><i style={{ width: `${connectedWeight}%` }} /></div><span>전체 가중치 중 {connectedWeight}% 반영{excluded.length ? ` · ${excluded.join("·")}은 현재 산정에서 제외` : ""}</span></div>
       {analysis.limitations.length > 0 && <div className="analysis-limitations"><b>함께 확인할 조건</b><ul>{analysis.limitations.map(item => <li key={item}>{item}</li>)}</ul></div>}
     </details>
+  </section>;
+}
+
+function populationShare(value: number | undefined, total: number | undefined) {
+  return value !== undefined && total ? `${Math.round(value / total * 1000) / 10}%` : "—";
+}
+
+function RegionalProfileBlock({ analysis }: { analysis: LocationAnalysis }) {
+  const profile = analysis.regionalProfile;
+  const total = analysis.demographics?.residentPopulation;
+  if (!profile) return null;
+  const facts = [
+    ["남성", populationShare(profile.malePopulation, total)],
+    ["여성", populationShare(profile.femalePopulation, total)],
+    ["15세 미만", populationShare(profile.childPopulation, total)],
+    ["20~39세", populationShare(profile.youngAdultPopulation, total)],
+    ["40~59세", populationShare(profile.middleAgePopulation, total)],
+    ["65세 이상", populationShare(profile.seniorPopulation, total)],
+    ["초등학교", profile.elementarySchools !== undefined ? `${profile.elementarySchools}곳` : "—"],
+    ["어린이집·유치원", profile.childcareFacilities !== undefined ? `${profile.childcareFacilities}곳` : "—"]
+  ];
+  return <section className="panel-section regional-profile">
+    <div className="panel-title"><div><span>WHO LIVES HERE?</span><h3>이 지역은 어떤 곳인가요?</h3></div></div>
+    <article className="region-character"><span>{profile.areaName} · {profile.year}년</span><h3>{profile.character}</h3><p>{profile.characterReason}</p></article>
+    <div className="regional-facts">{facts.map(([label, value]) => <div key={label}><span>{label}</span><b>{value}</b></div>)}</div>
+    <div className="specialty-fit"><b>{analysis.specialty} 관점에서 보면</b>{profile.specialtyFit.map(item => <p key={item}>{item}</p>)}</div>
+    <div className="doctor-checks"><b><Search /> 원장님이 현장에서 확인할 것</b><ol>{profile.doctorChecks.map(item => <li key={item}>{item}</li>)}</ol></div>
   </section>;
 }
 
@@ -183,7 +211,7 @@ function GroundedInsight({ analysis, loading }: { analysis: LocationAnalysis; lo
     <div className={`pros-cons ${nextChecks.length ? "three-columns" : ""}`}>
       <div><b><Check /> 확인된 신호</b>{renderItems(strengths)}</div>
       <div><b><AlertTriangle /> 확인 필요</b>{renderItems(risks)}</div>
-      {nextChecks.length > 0 && <div className="next-checks"><b><Search /> 다음 확인</b>{renderItems(nextChecks)}</div>}
+      {nextChecks.length > 0 && <div className="next-checks"><b><Search /> 원장님이 확인할 것</b>{renderItems(nextChecks)}</div>}
     </div>
     <p className="insight-status">{interpretation?.message || "분석 완료 후 연결된 자료만으로 AI 해석을 요청합니다."}</p>
   </section>;
@@ -192,7 +220,7 @@ function GroundedInsight({ analysis, loading }: { analysis: LocationAnalysis; lo
 function OverviewPanel({ analysis, onTab, aiLoading }: { analysis: LocationAnalysis; onTab: (tab: PanelTab) => void; aiLoading: boolean }) {
   const stats = [
     ["전체 의료기관", formatCount(analysis, "medical"), analysis.hiraMedical?.status === "available" ? "HIRA 신고 기준 공식 수" : analysis.countLimits?.medical ? "카카오 조회 상한 도달" : "Kakao 장소검색 기준"],
-    [`${analysis.specialty} ${analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? "공식 수" : "검색"}`, formatCount(analysis, "matchingSpecialty"), analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? "HIRA 진료과목 코드 기준" : "Kakao 분류·검색 기준"],
+    [`${analysis.specialty} 직접 경쟁`, formatCount(analysis, "matchingSpecialty"), "Kakao 분류·검색 기준"],
     ["약국", formatCount(analysis, "pharmacy"), analysis.hiraMedical?.pharmacyCount !== undefined ? "HIRA 약국정보 기준" : analysis.countLimits?.pharmacy ? "카카오 조회 상한 도달" : "Kakao 장소검색 기준"],
     ["지하철역", formatCount(analysis, "transit"), "카카오 역 카테고리"],
     ["주차시설", formatCount(analysis, "parking"), analysis.countLimits?.parking ? "카카오 조회 상한 도달" : "공개 등록 기준"],
@@ -201,7 +229,7 @@ function OverviewPanel({ analysis, onTab, aiLoading }: { analysis: LocationAnaly
     ...(analysis.livingPopulation?.status === "available" ? [["생활인구", `${analysis.livingPopulation.total?.toLocaleString()}명`, `${analysis.livingPopulation.referenceDate} ${String(analysis.livingPopulation.hour).padStart(2, "0")}시 · 서울시`]] : []),
     ...(analysis.consumerPower?.status === "available" ? [["소비력 백분위", `${analysis.consumerPower.percentile}%`, `${analysis.consumerPower.areaName || "행정동"} · ${analysis.consumerPower.referencePeriod || "최신"}`]] : []),
     ...(analysis.rentMarket?.status === "available" ? [["평당 월세 참고값", `${analysis.rentMarket.monthlyRentPerPyeongManwon?.toLocaleString()}만원`, analysis.rentMarket.spatialUnit]] : []),
-    ...(analysis.developmentPlans?.status === "available" ? [["주변 개발계획", `${analysis.developmentPlans.plans.length}건`, `반경 ${analysis.developmentPlans.radiusMeters.toLocaleString()}m`]] : [])
+    ...(analysis.developmentPlans?.status === "available" ? [["개발·계획 공간", `${analysis.developmentPlans.plans.length}건`, `반경 ${analysis.developmentPlans.radiusMeters.toLocaleString()}m`]] : [])
   ];
   const excluded = analysis.metrics.filter(metric => metric.value === null).map(metric => metric.label);
   return <div className="panel-content">
@@ -210,6 +238,7 @@ function OverviewPanel({ analysis, onTab, aiLoading }: { analysis: LocationAnaly
     <p className="score-disclaimer">이 점수는 개원 성공확률이 아니라 후보지 비교용 지표입니다.{excluded.length ? ` ${excluded.join("·")}은 자료가 확보되기 전까지 점수 산정에서 제외됩니다.` : " 모든 핵심 항목이 반영되었습니다."}</p>
     <div className="stats-grid">{stats.map(([label, value, meta]) => <article key={label}><span>{label}</span><b>{value}</b><small>{meta}</small></article>)}</div>
     <section className="panel-section"><div className="panel-title"><div><span>ANALYSIS FACTORS</span><h3>현재 확인된 핵심 지표</h3></div><button onClick={() => onTab("competitors")}>경쟁병원 <ChevronRight /></button></div><MetricBars metrics={analysis.metrics} /></section>
+    <RegionalProfileBlock analysis={analysis} />
     <DecisionEvidence analysis={analysis} />
     <GroundedInsight analysis={analysis} loading={aiLoading} />
     <button className="profitability-entry" type="button" onClick={() => onTab("profitability")}><span><Calculator /><b>수익성은 입력값으로 직접 확인하세요</b><small>면적·월세·개원자금을 입력하면 참고 매출범위와 회수기간을 계산합니다.</small></span><ChevronRight /></button>
@@ -226,7 +255,7 @@ function PrintAppendix({ analysis }: { analysis: LocationAnalysis }) {
       <div className="section-intro"><span>COMPETITION APPENDIX</span><h2>경쟁 의료기관 근거</h2><p>{analysis.specialty} · 반경 {analysis.radiusMeters.toLocaleString()}m · 거리순 주요 12곳</p></div>
       <div className="print-competitor-summary"><article><span>전체 의료기관</span><b>{formatCount(analysis, "medical")}</b></article><article><span>{analysis.specialty}</span><b>{formatCount(analysis, "matchingSpecialty")}</b></article><article><span>약국</span><b>{formatCount(analysis, "pharmacy")}</b></article></div>
       <table className="print-competitor-table"><thead><tr><th>의료기관</th><th>분류</th><th>거리</th><th>주소</th></tr></thead><tbody>{hospitals.map(place => <tr key={place.id}><td>{place.name}</td><td>{place.specialty || "의료기관"}</td><td>{place.distanceMeters.toLocaleString()}m</td><td>{place.address || "공개 주소 없음"}</td></tr>)}</tbody></table>
-      <small className="print-source-line">{analysis.hiraMedical?.status === "available" ? "기관 수: HIRA 신고 기준 · 위치와 장소명: Kakao 장소검색" : "기관 수·위치·장소명: Kakao 장소검색 기준"}</small>
+      <small className="print-source-line">{analysis.hiraMedical?.status === "available" ? "전체 기관 수: HIRA 신고 기준 · 직접 경쟁 수와 위치·장소명: Kakao 분류·검색 기준" : "기관 수·직접 경쟁 수·위치·장소명: Kakao 분류·검색 기준"}</small>
     </section>
     <section className="print-appendix-section print-forecast-section"><ForecastPanel analysis={analysis} /></section>
   </div>;
@@ -258,7 +287,7 @@ function ForecastPanel({ analysis }: { analysis: LocationAnalysis }) {
   const forecast = analysis.growthForecast;
   if (!forecast || forecast.status !== "available") {
     const plans = analysis.developmentPlans?.status === "available" ? analysis.developmentPlans.plans : [];
-    return <div className="panel-content"><div className="section-intro"><span>DATA CONNECTION</span><h2>3년 전망 데이터 준비</h2><p>가상의 전망 수치는 표시하지 않습니다.</p></div><div className="honest-placeholder"><BarChart3 /><h3>연도별 SGIS 통계가 필요합니다</h3><p>{forecast?.message || "해당 위치의 최근 연도별 인구·종사자·사업체 통계를 불러오지 못했습니다."}</p><ul><li>신규 아파트 입주와 주택 공급</li><li>재개발·재건축·신축건물</li><li>교통망 개통 계획</li><li>의료기관 개폐업 추세</li></ul></div>{plans.length > 0 && <section className="development-list"><h3>현재 확인 가능한 공개 개발계획</h3>{plans.slice(0, 8).map(plan => <article key={plan.id}><Building2 /><div><b>{plan.name}</b><span>{plan.category} · {plan.status}{plan.targetDate ? ` · ${plan.targetDate}` : ""}</span></div><em>{plan.distanceMeters !== undefined ? `${plan.distanceMeters.toLocaleString()}m` : "공개자료"}</em></article>)}</section>}</div>;
+    return <div className="panel-content"><div className="section-intro"><span>DATA CONNECTION</span><h2>3년 전망 데이터 준비</h2><p>가상의 전망 수치는 표시하지 않습니다.</p></div><div className="honest-placeholder"><BarChart3 /><h3>연도별 SGIS 통계가 필요합니다</h3><p>{forecast?.message || "해당 위치의 최근 연도별 인구·종사자·사업체 통계를 불러오지 못했습니다."}</p><ul><li>신규 아파트 입주와 주택 공급</li><li>재개발·재건축·신축건물</li><li>교통망 개통 계획</li><li>의료기관 개폐업 추세</li></ul></div>{plans.length > 0 && <section className="development-list"><h3>현재 확인 가능한 개발·계획 공간정보</h3>{plans.slice(0, 8).map(plan => <article key={plan.id}><Building2 /><div><b>{plan.name}</b><span>{plan.category} · {plan.status}{plan.targetDate ? ` · ${plan.targetDate}` : ""}</span></div><em>{plan.distanceMeters !== undefined ? `${plan.distanceMeters.toLocaleString()}m` : "공개자료"}</em></article>)}</section>}</div>;
   }
   const base = forecast.historical.at(-1)!;
   const trendLabel = (value: number) => value > .05 ? `+${value}%` : `${value}%`;
@@ -277,8 +306,8 @@ function ForecastPanel({ analysis }: { analysis: LocationAnalysis }) {
       <dl><div><dt>거주인구</dt><dd>{point.residentPopulation.toLocaleString()}명 <small>{trendLabel(Math.round(changeFromBase(point.residentPopulation, base.residentPopulation) * 10) / 10)}</small></dd></div><div><dt>종사자</dt><dd>{point.workerPopulation.toLocaleString()}명 <small>{trendLabel(Math.round(changeFromBase(point.workerPopulation, base.workerPopulation) * 10) / 10)}</small></dd></div><div><dt>사업체</dt><dd>{point.businesses.toLocaleString()}개 <small>{trendLabel(Math.round(changeFromBase(point.businesses, base.businesses) * 10) / 10)}</small></dd></div></dl>
     </article>)}</div>
     <section className="forecast-history"><h3>계산에 사용한 실제 통계</h3>{forecast.historical.map(point => <div key={point.year}><b>{point.year}</b><span>거주 {point.residentPopulation.toLocaleString()}명</span><span>종사자 {point.workerPopulation.toLocaleString()}명</span><span>사업체 {point.businesses.toLocaleString()}개</span></div>)}</section>
-    {analysis.developmentPlans?.status === "available" && <section className="development-list"><h3>반경 내 공개 개발계획</h3>{analysis.developmentPlans.plans.slice(0, 8).map(plan => <article key={plan.id}><Building2 /><div><b>{plan.name}</b><span>{plan.category} · {plan.status}{plan.targetDate ? ` · ${plan.targetDate}` : ""}</span></div><em>{plan.distanceMeters !== undefined ? `${plan.distanceMeters.toLocaleString()}m` : "공개자료"}</em></article>)}</section>}
-    <div className="forecast-warning"><AlertTriangle /><p><b>전망값은 보장 수치가 아닙니다.</b> SGIS 행정동 통계의 최근 변화량을 선형 적용한 추정치입니다. {analysis.developmentPlans?.status === "available" ? `공개 개발계획 ${analysis.developmentPlans.plans.length}건을 별도 성장성 신호로 반영했습니다.` : "개발계획 승인키 연결 전에는 아파트 입주·재개발·교통망 계획이 포함되지 않습니다."}</p></div>
+    {analysis.developmentPlans?.status === "available" && <section className="development-list"><h3>반경 내 개발·계획 공간정보</h3>{analysis.developmentPlans.plans.slice(0, 8).map(plan => <article key={plan.id}><Building2 /><div><b>{plan.name}</b><span>{plan.category} · {plan.status}{plan.targetDate ? ` · ${plan.targetDate}` : ""}</span></div><em>{plan.distanceMeters !== undefined ? `${plan.distanceMeters.toLocaleString()}m` : "공개자료"}</em></article>)}</section>}
+    <div className="forecast-warning"><AlertTriangle /><p><b>전망값은 보장 수치가 아닙니다.</b> SGIS 행정동 통계의 최근 변화량을 선형 적용한 추정치입니다. {analysis.developmentPlans?.status === "available" ? analysis.developmentPlans.score !== undefined ? `일정·진행상태가 확인된 공개 계획 ${analysis.developmentPlans.plans.length}건을 별도 성장성 신호로 반영했습니다.` : `VWorld 계획공간 ${analysis.developmentPlans.plans.length}건은 참고자료로 표시하며, 확정 일정이 없어 성장성 점수에는 반영하지 않습니다.` : "개발계획 승인키 연결 전에는 아파트 입주·재개발·교통망 계획이 포함되지 않습니다."}</p></div>
     <section className="source-note"><b>출처와 산식</b><div><span>SGIS 실제 통계</span><span>{forecast.model}</span><span>행정동 단위</span></div><small>기준연도 {forecast.baseYear}년 · 선택 반경과 행정동 범위는 일치하지 않을 수 있습니다.</small></section>
   </div>;
 }

@@ -174,10 +174,10 @@ function drawSummaryPage(document: PDFDocument, fonts: Fonts, analysis: Location
   c.paragraph("연결된 공개데이터 비율이며 예측 정확도나 개원 성공확률이 아닙니다.", MARGIN + 180, c.y - 105, 126, 7.2, 10, { color: MUTED, maxLines: 2 });
 
   page.drawRectangle({ x: MARGIN + 332, y: c.y - 122, width: 179, height: 88, color: rgb(.985, .975, .95), borderColor: rgb(.9, .83, .7), borderWidth: .7 });
-  c.text("현재 판단", MARGIN + 346, c.y - 55, 8, { bold: true, color: GOLD });
-  const decision = analysis.confidence < 70 ? "조건부 검토" : analysis.observedScore >= 75 ? "우선 검토" : analysis.observedScore >= 60 ? "비교 검토" : "신중 검토";
+  c.text("쉽게 보는 결론", MARGIN + 346, c.y - 55, 8, { bold: true, color: GOLD });
+  const decision = analysis.confidence < 90 ? "비교 후보" : analysis.observedScore >= 75 ? "현장확인 우선" : analysis.observedScore >= 60 ? "다른 곳과 비교" : "대체 후보 검토";
   c.text(decision, MARGIN + 346, c.y - 82, 18, { bold: true, color: NAVY });
-  c.paragraph("현장 동선과 임대조건을 다른 후보지와 비교하세요.", MARGIN + 346, c.y - 101, 151, 7.2, 10, { color: MUTED, maxLines: 2 });
+  c.paragraph(analysis.confidence < 90 ? "같은 진료과의 다른 자리 한두 곳과 비교하세요." : "건물과 경쟁병원을 직접 확인할 후보입니다.", MARGIN + 346, c.y - 101, 151, 7.2, 10, { color: MUTED, maxLines: 2 });
 
   c.y -= 151;
   c.sectionLabel("Six evaluation factors", c.y);
@@ -198,11 +198,11 @@ function drawSummaryPage(document: PDFDocument, fonts: Fonts, analysis: Location
     ["전체 의료기관", countLabel(analysis, "medical")],
     [`${analysis.specialty} 의료기관`, countLabel(analysis, "matchingSpecialty")],
     ["약국", countLabel(analysis, "pharmacy")],
-    ["지하철역", countLabel(analysis, "transit")],
-    ["주차시설", countLabel(analysis, "parking")],
+    ["생활인구", analysis.livingPopulation?.status === "available" ? `${analysis.livingPopulation.total?.toLocaleString()}명` : "자료 미반영"],
     ["거주인구", analysis.demographics ? `${analysis.demographics.residentPopulation.toLocaleString()}명` : "자료 미반영"],
     ["종사자", analysis.demographics ? `${analysis.demographics.workerPopulation.toLocaleString()}명` : "자료 미반영"],
-    ["생활인구", analysis.livingPopulation?.status === "available" ? `${analysis.livingPopulation.total?.toLocaleString()}명` : "자료 미반영"]
+    ["15세 미만", analysis.regionalProfile?.childPopulation !== undefined && analysis.demographics && analysis.demographics.residentPopulation > 0 ? `${Math.round(analysis.regionalProfile.childPopulation / analysis.demographics.residentPopulation * 1000) / 10}%` : "자료 미반영"],
+    ["초등학교", analysis.regionalProfile?.elementarySchools !== undefined ? `${analysis.regionalProfile.elementarySchools}곳` : "자료 미반영"]
   ];
   observed.forEach(([label, value], index) => {
     const column = index % 4;
@@ -215,9 +215,12 @@ function drawSummaryPage(document: PDFDocument, fonts: Fonts, analysis: Location
   });
 
   c.y -= 125;
-  c.sectionLabel("Executive interpretation", c.y);
+  c.sectionLabel("Area character and specialty fit", c.y);
   c.y -= 29;
-  c.paragraph(analysis.insight, MARGIN, c.y, PAGE_WIDTH - MARGIN * 2, 9.2, 14, { color: TEXT, maxLines: 7 });
+  const profileSummary = analysis.regionalProfile
+    ? `${analysis.regionalProfile.character}: ${analysis.regionalProfile.characterReason} ${analysis.regionalProfile.specialtyFit.join(" ")}`
+    : analysis.insight;
+  c.paragraph(profileSummary, MARGIN, c.y, PAGE_WIDTH - MARGIN * 2, 9.2, 14, { color: TEXT, maxLines: 7 });
   c.footer(1);
 }
 
@@ -289,11 +292,15 @@ function drawEvidencePage(document: PDFDocument, fonts: Fonts, analysis: Locatio
   drawForecastChart(page, fonts, analysis, MARGIN, c.y - 163, PAGE_WIDTH - MARGIN * 2, 163);
   c.y -= 184;
 
-  c.sectionLabel("Limitations", c.y);
+  c.sectionLabel("What the doctor should check", c.y);
   c.y -= 26;
-  (analysis.limitations.length ? analysis.limitations : ["공개데이터의 등록·갱신 시점에 따라 실제 현황과 차이가 날 수 있습니다."]).slice(0, 4).forEach((item, index) => {
+  (analysis.regionalProfile?.doctorChecks || [
+    "선택 진료과의 핵심 환자층과 실제 생활인구 시간대가 맞는지 확인하세요.",
+    "경쟁병원의 진료내용과 운영시간, 환자 대기 수준을 직접 비교하세요.",
+    "건물 가시성·엘리베이터·주차와 실제 임대조건을 확인하세요."
+  ]).slice(0, 4).forEach((item, index) => {
     c.text(`${index + 1}.`, MARGIN, c.y - index * 18, 7.5, { bold: true, color: GOLD });
-    c.text(c.fit(item, PAGE_WIDTH - MARGIN * 2 - 16, 7.2), MARGIN + 16, c.y - index * 18, 7.2, { color: MUTED });
+    c.text(c.fit(item, PAGE_WIDTH - MARGIN * 2 - 16, 7.2), MARGIN + 16, c.y - index * 18, 7.2, { color: TEXT });
   });
   c.footer(2);
 }
