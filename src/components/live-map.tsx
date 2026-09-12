@@ -103,6 +103,20 @@ function MapClick({ onSelect }: { onSelect: (latitude: number, longitude: number
   return null;
 }
 
+function AnalyzePopupLocation({ latitude, longitude, onSelect, label = "이 위치 분석하기" }: {
+  latitude: number;
+  longitude: number;
+  onSelect: (latitude: number, longitude: number) => void;
+  label?: string;
+}) {
+  const map = useMap();
+  return <button type="button" className="popup-analysis-action" onClick={event => {
+    event.stopPropagation();
+    map.closePopup();
+    onSelect(latitude, longitude);
+  }}>{label}</button>;
+}
+
 export default function LiveMap({ analysis, activeKinds, populationActive, selected, onPlace, onSelectCoordinate }: {
   analysis: LocationAnalysis;
   activeKinds: Set<string>;
@@ -125,8 +139,9 @@ export default function LiveMap({ analysis, activeKinds, populationActive, selec
       key={`${cell.row}-${cell.column}`}
       bounds={cell.bounds}
       interactive
+      bubblingMouseEvents={false}
       pathOptions={{ color: cell.category.color, fillColor: cell.category.color, fillOpacity: .27, weight: .7 }}
-    ><Popup><strong>{cell.actual ? "250m 격자 실제 생활인구" : "생활인구 공간분포 추정"}</strong><br />{cell.actual ? <><b>{cell.population?.toLocaleString()}명</b> · {cell.category.label}</> : <>밀도지수 <b>{cell.score}/100</b> · {cell.category.label}</>}<br />{livingPopulation.referenceDate} {String(livingPopulation.hour).padStart(2, "0")}시<br />{cell.actual ? `격자 ${cell.row}` : `행정동 실제 생활인구 ${livingPopulation.total?.toLocaleString()}명`}<br /><small>{cell.actual ? "서울특별시 250m 격자 원자료" : "주변 지하철·약국·의료기관 접근성으로 공간 배분한 추정지수"}</small></Popup></Rectangle>)}
+    ><Popup><strong>{cell.actual ? "250m 격자 실제 생활인구" : "생활인구 공간분포 추정"}</strong><br />{cell.actual ? <><b>{cell.population?.toLocaleString()}명</b> · {cell.category.label}</> : <>밀도지수 <b>{cell.score}/100</b> · {cell.category.label}</>}<br />{livingPopulation.referenceDate} {String(livingPopulation.hour).padStart(2, "0")}시<br />{cell.actual ? `격자 ${cell.row}` : `행정동 실제 생활인구 ${livingPopulation.total?.toLocaleString()}명`}<br /><small>{cell.actual ? "서울특별시 250m 격자 원자료" : "주변 지하철·약국·의료기관 접근성으로 공간 배분한 추정지수"}</small><AnalyzePopupLocation latitude={cell.centerLatitude} longitude={cell.centerLongitude} onSelect={onSelectCoordinate} label="이 격자 중심으로 분석하기" /></Popup></Rectangle>)}
     <Circle center={[latitude, longitude]} radius={analysis.radiusMeters} pathOptions={{ color: "#0f937d", fillColor: "#38b2ac", fillOpacity: .08, weight: 2, dashArray: "6 7" }} />
     <Marker position={[latitude, longitude]} icon={ANALYSIS_LOCATION_ICON} zIndexOffset={1000} bubblingMouseEvents={false}>
       <Popup><b>분석 중심지</b><br />{analysis.location.displayName}</Popup>
@@ -138,13 +153,13 @@ export default function LiveMap({ analysis, activeKinds, populationActive, selec
       bubblingMouseEvents={false}
       pathOptions={{ color: "#fff", fillColor: COLORS[place.kind], fillOpacity: .95, weight: selected?.id === place.id ? 4 : 2 }}
       eventHandlers={{ click: () => onPlace(place) }}
-    ><Popup><strong>{place.name}</strong><br />{place.specialty || place.kind}<br />{place.distanceMeters.toLocaleString()}m</Popup></CircleMarker>)}
+    ><Popup><strong>{place.name}</strong><br />{place.specialty || place.kind}<br />{place.distanceMeters.toLocaleString()}m<AnalyzePopupLocation latitude={place.latitude} longitude={place.longitude} onSelect={onSelectCoordinate} /></Popup></CircleMarker>)}
     {activeKinds.has("development") && analysis.developmentPlans?.status === "available" && analysis.developmentPlans.plans.filter(plan => plan.latitude !== undefined && plan.longitude !== undefined).map(plan => <CircleMarker
       key={`development-${plan.id}`}
       center={[plan.latitude!, plan.longitude!]}
       radius={8}
       bubblingMouseEvents={false}
       pathOptions={{ color: "#fff", fillColor: "#d28c24", fillOpacity: .95, weight: 3, dashArray: "3 2" }}
-    ><Popup><strong>{plan.name}</strong><br />{plan.category}<br />{plan.status}{plan.distanceMeters !== undefined ? <><br />약 {plan.distanceMeters.toLocaleString()}m</> : null}<br /><small>VWorld 공식 계획공간 정보</small></Popup></CircleMarker>)}
+    ><Popup><strong>{plan.name}</strong><br />{plan.category}<br />{plan.status}{plan.distanceMeters !== undefined ? <><br />약 {plan.distanceMeters.toLocaleString()}m</> : null}<br /><small>VWorld 공식 계획공간 정보</small><AnalyzePopupLocation latitude={plan.latitude!} longitude={plan.longitude!} onSelect={onSelectCoordinate} /></Popup></CircleMarker>)}
   </MapContainer>;
 }
