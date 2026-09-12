@@ -9,19 +9,6 @@ const WINDOW_MS = 60_000;
 const REQUESTS_PER_WINDOW = 12;
 const requestWindows = new Map<string, { startedAt: number; count: number }>();
 
-const generatedItemSchema = z.object({
-  text: z.string().min(12).max(180).describe("제공된 근거만 해석한 한국어 한 문장"),
-  evidenceIds: z.array(z.string().min(1).max(40)).min(1).max(3).describe("문장을 직접 뒷받침하는 근거 ID")
-});
-
-const generatedInsightSchema = z.object({
-  summary: z.string().min(40).max(700).describe("확인된 사실, 의미, 한계를 구분한 2~4문장 요약"),
-  summaryEvidenceIds: z.array(z.string().min(1).max(40)).min(2).max(6),
-  strengths: z.array(generatedItemSchema).min(2).max(3),
-  risks: z.array(generatedItemSchema).min(2).max(3),
-  nextChecks: z.array(generatedItemSchema).min(2).max(3)
-});
-
 function isAnalysis(value: unknown): value is LocationAnalysis {
   if (!value || typeof value !== "object") return false;
   const analysis = value as Partial<LocationAnalysis>;
@@ -95,6 +82,18 @@ export async function POST(request: Request) {
 
   const evidence = buildInsightEvidence(analysis);
   const allowedIds = new Set(evidence.map(item => item.id));
+  const evidenceIdSchema = z.enum(evidence.map(item => item.id) as [string, ...string[]]);
+  const generatedItemSchema = z.object({
+    text: z.string().min(12).max(180).describe("제공된 근거만 해석한 한국어 한 문장"),
+    evidenceIds: z.array(evidenceIdSchema).min(1).max(3).describe("문장을 직접 뒷받침하는 허용된 근거 ID")
+  });
+  const generatedInsightSchema = z.object({
+    summary: z.string().min(40).max(700).describe("확인된 사실, 의미, 한계를 구분한 2~4문장 요약"),
+    summaryEvidenceIds: z.array(evidenceIdSchema).min(2).max(6),
+    strengths: z.array(generatedItemSchema).min(2).max(3),
+    risks: z.array(generatedItemSchema).min(2).max(3),
+    nextChecks: z.array(generatedItemSchema).min(2).max(3)
+  });
   const missing = analysis.dataConnections?.filter(connection => connection.status !== "available").map(connection => ({ label: connection.label, status: connection.status, message: connection.message })) || [];
   const model = process.env.AI_INSIGHT_MODEL || "openai/gpt-5.4-mini";
 
