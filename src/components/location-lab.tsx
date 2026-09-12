@@ -144,6 +144,7 @@ function RegionalProfileBlock({ analysis }: { analysis: LocationAnalysis }) {
     <div className="panel-title"><div><span>WHO LIVES HERE?</span><h3>이 지역은 어떤 곳인가요?</h3></div></div>
     <article className="region-character"><span>{profile.areaName} · {profile.year}년</span><h3>{profile.character}</h3><p>{profile.characterReason}</p></article>
     <div className="regional-facts">{facts.map(([label, value]) => <div key={label}><span>{label}</span><b>{value}</b></div>)}</div>
+    <p className="score-disclaimer">인구 비율: {profile.year}년 {profile.areaName} 전체 주민 기준 · 시설 수: 선택 반경 {analysis.radiusMeters.toLocaleString()}m 내 검색 결과. 연령 구간은 주요 환자층을 보여주며 합계가 100%인 구분표는 아닙니다.</p>
     <div className="specialty-fit"><b>{analysis.specialty} 관점에서 보면</b>{profile.specialtyFit.map(item => <p key={item}>{item}</p>)}</div>
     <div className="doctor-checks"><b><Search /> 원장님이 현장에서 확인할 것</b><ol>{profile.doctorChecks.map(item => <li key={item}>{item}</li>)}</ol></div>
   </section>;

@@ -80,7 +80,9 @@ export function buildRuleInterpretation(analysis: LocationAnalysis, status: AiIn
   return {
     status,
     provider: "rules",
-    summary: analysis.insight,
+    summary: analysis.regionalProfile
+      ? `${analysis.regionalProfile.characterReason} ${analysis.regionalProfile.specialtyFit.join(" ")} 실제 임대조건과 경쟁병원을 확인한 뒤 다른 후보지와 비교하세요.`
+      : `반경 ${analysis.radiusMeters.toLocaleString()}m에서 ${analysis.specialty} 관련 기관 ${analysis.counts.matchingSpecialty.toLocaleString()}곳이 검색됩니다. 경쟁병원의 진료내용과 환자가 건물까지 오는 동선을 확인하고, 실제 월세를 넣어 다른 후보지와 비교하세요.`,
     summaryEvidenceIds: ["location", "medical", "specialty", "score", "coverage"].filter(id => evidenceIds.has(id)),
     strengths,
     risks,

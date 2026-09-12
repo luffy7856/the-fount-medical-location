@@ -478,19 +478,18 @@ function buildRegionalProfile(
 ): RegionalProfile | undefined {
   if (!demographics) return undefined;
   const total = demographics.residentPopulation;
-  const maleShare = percent(population?.malePopulation, total);
   const femaleShare = percent(population?.femalePopulation, total);
   const childShare = percent(population?.childPopulation, total);
   const youngShare = percent(population?.youngAdultPopulation, total);
   const middleShare = percent(population?.middleAgePopulation, total);
   const seniorShare = percent(population?.seniorPopulation, total);
   const workerRatio = total > 0 ? demographics.workerPopulation / total : 0;
-  const populationChange = growthForecast?.status === "available" ? growthForecast.annualChange.residentPopulation : 0;
+  const populationChange = growthForecast?.status === "available" ? growthForecast.annualChange.residentPopulation : undefined;
   const hasNewTownPlan = externalData?.developmentPlans?.plans.some(plan => /LH|택지|신도시|주거환경|재개발|재건축/i.test(`${plan.category} ${plan.name}`)) || false;
 
   let character = "주거·업무 혼합 생활권";
   let characterReason = "거주인구와 종사자 규모가 한쪽에 크게 치우치지 않아 상시 수요와 직장 수요를 함께 살펴볼 지역입니다.";
-  if (hasNewTownPlan && populationChange > 0) {
+  if (hasNewTownPlan && populationChange !== undefined && populationChange > 0) {
     character = "개발·확장형 생활권";
     characterReason = `주변 계획구역이 확인되고 거주인구도 연 ${populationChange}% 흐름을 보여, 입주 시점과 경쟁병원 증가를 함께 확인해야 합니다.`;
   } else if (workerRatio >= 1.25) {
@@ -499,9 +498,15 @@ function buildRegionalProfile(
   } else if ((childShare || 0) >= 13 && (elementarySchools || 0) >= 2) {
     character = "가족 주거 중심 생활권";
     characterReason = `15세 미만 인구 비중이 ${childShare}%이고 반경 내 초등학교가 ${elementarySchools}곳 확인되어 가족 단위 생활수요가 비교적 뚜렷합니다.`;
-  } else if ((demographics.averageAge || 0) >= 44 && populationChange <= 0) {
+  } else if ((demographics.averageAge || 0) >= 44 && populationChange !== undefined && populationChange <= 0) {
     character = "성숙 주거지 성향";
     characterReason = `평균연령이 ${demographics.averageAge}세이고 거주인구 흐름이 연 ${populationChange}%로, 신규 유입보다 기존 주민의 반복진료 수요를 우선 살펴볼 지역입니다.`;
+  } else if (total > 0 && workerRatio < .5) {
+    character = "주거 중심 생활권";
+    characterReason = "종사자보다 거주인구가 많아 주변 주민의 생활 동선과 반복 방문 편의를 살펴볼 지역입니다.";
+  } else if (total <= 0) {
+    character = "생활권 성격 확인 필요";
+    characterReason = "주민과 직장인 규모를 함께 비교할 자료가 부족합니다. 아파트와 업무시설에서 후보 건물로 이어지는 동선을 확인하세요.";
   }
 
   const ageText = [
