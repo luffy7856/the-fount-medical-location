@@ -99,9 +99,8 @@
 .compare-head span{font-size:10px}.compare-head h3{font-size:13px}.compare-table>div{font-size:13px}.ai-compare span{font-size:10px}.ai-compare p{font-size:12px}.add-candidate{height:44px;font-size:12px}
 
 @media(max-width:800px){
-  .panel-tabs{top:58px;height:66px;display:flex;overflow-x:auto;scrollbar-width:none;padding:7px 10px;gap:7px}
-  .panel-tabs::-webkit-scrollbar{display:none}
-  .panel-tabs button:not(.mobile-print){flex:0 0 100px;min-height:50px;font-size:12px}
+  .panel-tabs{top:58px;height:68px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));overflow:visible;padding:7px 6px;gap:4px}
+  .panel-tabs button:not(.mobile-print){min-width:0;min-height:52px;padding:3px 1px;font-size:10px;letter-spacing:-.02em}
   .panel-tabs button:not(.mobile-print) svg{width:16px;height:16px}
   .panel-content{padding:25px 18px 40px}
 }
