@@ -123,3 +123,19 @@
 .forecast-lines svg{width:100%;min-width:420px;height:auto;display:block;overflow:visible}
 .forecast-lines svg text{font-size:11px;fill:#596b77;font-variant-numeric:tabular-nums}
 .forecast-lines svg .chart-value{font-size:11px;font-weight:700;fill:#253d4a}
+.saved-analysis-list{margin-top:24px;padding-top:20px;border-top:1px solid var(--line)}
+.saved-analysis-list>div:first-child{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.saved-analysis-list>div:first-child span{font-size:9px;font-weight:900;letter-spacing:.1em;color:var(--teal)}
+.saved-analysis-list h3{margin:3px 0 0;font-size:17px}
+.saved-analysis-list>div:first-child>button{border:0;background:transparent;color:#8a4b42;font-size:10px;font-weight:800}
+.saved-analysis-list>p{margin:7px 0 12px;color:var(--muted);font-size:11px}
+.saved-analysis-list>div:last-child{display:grid;gap:7px}
+.saved-analysis-list article{display:grid;grid-template-columns:minmax(0,1fr) 36px;border:1px solid var(--line);border-radius:9px;background:#fff;overflow:hidden;transition:border-color .2s,box-shadow .2s,transform .2s}
+.saved-analysis-list article:hover{transform:translateY(-1px);border-color:#a8c8c1;box-shadow:0 7px 16px rgba(27,63,70,.08)}
+.saved-analysis-list article>button:first-child{min-width:0;display:grid;grid-template-columns:24px minmax(0,1fr) 34px 14px;gap:8px;align-items:center;padding:11px;border:0;background:transparent;text-align:left;color:inherit}
+.saved-analysis-list article>button:first-child>svg{width:17px;color:var(--teal)}
+.saved-analysis-list article span{min-width:0}.saved-analysis-list article b,.saved-analysis-list article small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saved-analysis-list article b{font-size:12px}.saved-analysis-list article small{margin-top:2px;color:var(--muted);font-size:9px}
+.saved-analysis-list article strong{font-size:15px;text-align:right}.saved-analysis-list article>button:last-child{border:0;border-left:1px solid var(--line);background:#fafbfb;color:#8b979e}
+.saved-analysis-list article>button:last-child:hover{background:#fff0ed;color:var(--danger)}.saved-analysis-list article>button:last-child svg{width:14px}
+@media(max-width:470px){.saved-analysis-list article>button:first-child{grid-template-columns:20px minmax(0,1fr) 30px 12px;padding:10px 8px}.saved-analysis-list article small{font-size:8px}}

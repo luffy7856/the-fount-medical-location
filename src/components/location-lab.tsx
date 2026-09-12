@@ -10,6 +10,7 @@ import {
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { specialties, type Specialty } from "@/data/specialties";
 import type { LivingPopulation, LocationAnalysis, LiveMetric, LivePlace } from "@/data/location-types";
+import { analysisStorageId, loadSavedAnalyses, mergeSavedAnalysis, storeSavedAnalyses } from "@/data/saved-analyses";
 
 const LiveMap = dynamic(() => import("./live-map"), { ssr: false, loading: () => <div className="map-loading"><Activity className="spin" /> 지도를 불러오는 중</div> });
 
@@ -313,12 +314,25 @@ function ForecastPanel({ analysis }: { analysis: LocationAnalysis }) {
   </div>;
 }
 
-function ComparePanel({ saved }: { saved: LocationAnalysis[] }) {
+function SavedAnalysisList({ saved, onOpen, onRemove, onClear }: { saved: LocationAnalysis[]; onOpen: (analysis: LocationAnalysis) => void; onRemove: (id: string) => void; onClear: () => void }) {
+  if (!saved.length) return null;
+  return <section className="saved-analysis-list">
+    <div><div><span>SAVED ON THIS DEVICE</span><h3>최근 분석 기록</h3></div><button type="button" onClick={onClear}>전체 삭제</button></div>
+    <p>이 브라우저에만 최대 8개까지 저장됩니다.</p>
+    <div>{[...saved].reverse().map(item => <article key={analysisStorageId(item)}>
+      <button type="button" onClick={() => onOpen(item)}><MapPin /><span><b>{item.location.displayName.split(",")[0]}</b><small>{item.specialty} · 반경 {item.radiusMeters.toLocaleString()}m · {formatAnalysisTime(item.analyzedAt)}</small></span><strong>{item.observedScore || "—"}</strong><ChevronRight /></button>
+      <button type="button" aria-label={`${item.location.displayName.split(",")[0]} 저장 기록 삭제`} onClick={() => onRemove(analysisStorageId(item))}><X /></button>
+    </article>)}</div>
+  </section>;
+}
+
+function ComparePanel({ saved, onOpen, onRemove, onClear }: { saved: LocationAnalysis[]; onOpen: (analysis: LocationAnalysis) => void; onRemove: (id: string) => void; onClear: () => void }) {
   const candidates = saved.slice(-2);
-  if (candidates.length < 2) return <div className="panel-content"><div className="section-intro"><span>LIVE COMPARE</span><h2>후보지를 한 곳 더 분석하세요</h2><p>서로 다른 두 주소를 분석하면 실제 조회 결과를 비교합니다.</p></div><div className="honest-placeholder"><GitCompareArrows /><h3>{candidates.length ? "첫 번째 후보지가 저장되었습니다" : "비교할 후보지가 없습니다"}</h3><p>주소를 변경해 분석하기를 누르면 최근 두 후보지의 의료기관·교통·주차 데이터를 비교할 수 있습니다.</p></div></div>;
+  const history = <SavedAnalysisList saved={saved} onOpen={onOpen} onRemove={onRemove} onClear={onClear} />;
+  if (candidates.length < 2) return <div className="panel-content"><div className="section-intro"><span>LIVE COMPARE</span><h2>후보지를 한 곳 더 분석하세요</h2><p>서로 다른 두 주소를 분석하면 실제 조회 결과를 비교합니다.</p></div><div className="honest-placeholder"><GitCompareArrows /><h3>{candidates.length ? "첫 번째 후보지가 저장되었습니다" : "비교할 후보지가 없습니다"}</h3><p>주소를 변경해 분석하기를 누르면 최근 두 후보지의 의료기관·교통·주차 데이터를 비교할 수 있습니다.</p></div>{history}</div>;
   const [a, b] = candidates;
   const rows: [string, string | number, string | number][] = [["전체 의료기관", formatCount(a, "medical"), formatCount(b, "medical")], [`${b.specialty} 검색`, formatCount(a, "matchingSpecialty"), formatCount(b, "matchingSpecialty")], ["지하철역", formatCount(a, "transit"), formatCount(b, "transit")], ["약국", formatCount(a, "pharmacy"), formatCount(b, "pharmacy")], ["주차시설", formatCount(a, "parking"), formatCount(b, "parking")], ["베타 관측점수", a.observedScore, b.observedScore]];
-  return <div className="panel-content"><div className="section-intro"><span>LIVE CANDIDATE COMPARE</span><h2>실제 후보지 비교</h2><p>동일한 공개 데이터 기준으로 비교합니다.</p></div><div className="compare-head"><article><i>A</i><span>{a.specialty}</span><h3>{a.location.displayName.split(",")[0]}</h3><b>{a.observedScore}</b></article><GitCompareArrows /><article className={b.observedScore >= a.observedScore ? "recommended" : ""}><i>B</i><span>{b.specialty}</span><h3>{b.location.displayName.split(",")[0]}</h3><b>{b.observedScore}</b></article></div><div className="compare-table">{rows.map(([label, av, bv]) => <div key={label}><b>{av}</b><span>{label}</span><b>{bv}</b></div>)}</div><div className="ai-compare"><Sparkles /><div><span>비교 참고</span><p>현재 비교는 공개 지도에서 확인되는 경쟁시설과 접근성만 반영합니다. 매출·임대료·인구 데이터를 연결한 뒤 최종 후보지를 결정하세요.</p></div></div></div>;
+  return <div className="panel-content"><div className="section-intro"><span>LIVE CANDIDATE COMPARE</span><h2>실제 후보지 비교</h2><p>동일한 공개 데이터 기준으로 비교합니다.</p></div><div className="compare-head"><article><i>A</i><span>{a.specialty}</span><h3>{a.location.displayName.split(",")[0]}</h3><b>{a.observedScore}</b></article><GitCompareArrows /><article className={b.observedScore >= a.observedScore ? "recommended" : ""}><i>B</i><span>{b.specialty}</span><h3>{b.location.displayName.split(",")[0]}</h3><b>{b.observedScore}</b></article></div><div className="compare-table">{rows.map(([label, av, bv]) => <div key={label}><b>{av}</b><span>{label}</span><b>{bv}</b></div>)}</div><div className="ai-compare"><Sparkles /><div><span>비교 참고</span><p>현재 비교는 공개 지도에서 확인되는 경쟁시설과 접근성만 반영합니다. 매출·임대료·인구 데이터를 연결한 뒤 최종 후보지를 결정하세요.</p></div></div>{history}</div>;
 }
 
 export default function LocationLab() {
@@ -327,6 +341,7 @@ export default function LocationLab() {
   const [radiusMeters, setRadiusMeters] = useState(1000);
   const [analysis, setAnalysis] = useState<LocationAnalysis>(EMPTY_ANALYSIS);
   const [saved, setSaved] = useState<LocationAnalysis[]>([]);
+  const [savedReady, setSavedReady] = useState(false);
   const [tab, setTab] = useState<PanelTab>("overview");
   const [selectedPlace, setSelectedPlace] = useState<LivePlace | null>(null);
   const [layerOpen, setLayerOpen] = useState(true);
@@ -371,11 +386,13 @@ export default function LocationLab() {
         if (!completedResponse.ok) throw new Error(completed.error || "조회 결과를 분석하지 못했습니다.");
         result = completed as LocationAnalysis;
       }
-      setAnalysis(result); setSpecialty(result.specialty); setAddressInput(result.location.displayName.split(",")[0]); setSaved(current => [...current.filter(item => item.location.latitude !== result.location.latitude || item.location.longitude !== result.location.longitude), result].slice(-4)); setTab("overview"); setMobileFilter(false);
+      setAnalysis(result); setSpecialty(result.specialty); setAddressInput(result.location.displayName.split(",")[0]); setSaved(current => mergeSavedAnalysis(current, result)); setTab("overview"); setMobileFilter(false);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "분석 중 오류가 발생했습니다."); }
     finally { setLoading(false); }
   }, [specialty, radiusMeters, populationDate, populationHour]);
 
+  useEffect(() => { setSaved(loadSavedAnalyses()); setSavedReady(true); }, []);
+  useEffect(() => { if (savedReady) storeSavedAnalyses(saved); }, [saved, savedReady]);
   useEffect(() => { void runAnalysis({ address: "서울특별시 강남구 테헤란로 123" }); }, []);
   const submit = (event: FormEvent) => { event.preventDefault(); void runAnalysis({ address: addressInput }); };
   const toggleLayer = (id: string) => setActiveKinds(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; });
@@ -384,6 +401,10 @@ export default function LocationLab() {
     setTab("overview");
     requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
   };
+  const openSavedAnalysis = (item: LocationAnalysis) => {
+    setAnalysis(item); setSpecialty(item.specialty); setRadiusMeters(item.radiusMeters); setAddressInput(item.location.displayName.split(",")[0]); setSelectedPlace(null); setTab("overview");
+  };
+  const removeSavedAnalysis = (id: string) => setSaved(current => current.filter(item => analysisStorageId(item) !== id));
   const radiusLabel = useMemo(() => radiusMeters >= 1000 ? `${radiusMeters / 1000}km` : `${radiusMeters}m`, [radiusMeters]);
 
   useEffect(() => {
@@ -459,7 +480,7 @@ export default function LocationLab() {
           {tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}
           {tab === "forecast" && <ForecastPanel analysis={analysis} />}
           {tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}
-          {tab === "compare" && <ComparePanel saved={saved} />}
+          {tab === "compare" && <ComparePanel saved={saved} onOpen={openSavedAnalysis} onRemove={removeSavedAnalysis} onClear={() => setSaved([])} />}
         </div>
       </aside>
     </div>
