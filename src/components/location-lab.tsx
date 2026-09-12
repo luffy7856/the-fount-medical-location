@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ForecastLines } from "./forecast-lines";
 import {
   Activity, AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight,
   Building2, Calculator, Coins, Download, GitCompareArrows, Hospital, Layers3,
@@ -261,12 +262,25 @@ function PrintAppendix({ analysis }: { analysis: LocationAnalysis }) {
   </div>;
 }
 
+function kakaoPlaceLink(place: LivePlace) {
+  if (place.url) {
+    try {
+      const url = new URL(place.url);
+      if (["place.map.kakao.com", "map.kakao.com"].includes(url.hostname) && ["http:", "https:"].includes(url.protocol)) {
+        url.protocol = "https:";
+        return url.href;
+      }
+    } catch { /* Use the verified location when a place URL is unavailable. */ }
+  }
+  return `https://map.kakao.com/link/map/${encodeURIComponent(place.name)},${place.latitude},${place.longitude}`;
+}
+
 function CompetitorPanel({ analysis, selected, onSelect }: { analysis: LocationAnalysis; selected: LivePlace | null; onSelect: (place: LivePlace) => void }) {
   const hospitals = analysis.places.filter(place => place.kind === "hospital");
   const current = selected?.kind === "hospital" ? selected : hospitals[0];
   return <div className="panel-content"><div className="section-intro"><span>LIVE COMPETITOR MAP</span><h2>의료기관 {formatCount(analysis, "medical")}</h2><p>지도 표시 {hospitals.length}곳 · {analysis.specialty} {analysis.hiraMedical?.status === "available" ? "공식 수" : "검색"} {formatCount(analysis, "matchingSpecialty")} · 반경 {analysis.radiusMeters.toLocaleString()}m</p>{analysis.hiraMedical?.status === "available" && <small className="source-split">숫자: HIRA 신고 기준 · 위치·장소명: Kakao 장소검색</small>}</div>
     {current && <><div className="hospital-detail"><div className="hospital-avatar"><Hospital /></div><div><span>선택한 실제 의료기관</span><h3>{current.name}</h3><p>{current.specialty || "의료기관"} · {current.distanceMeters.toLocaleString()}m</p></div><b>LIVE</b></div><div className="detail-grid"><span>거리 <b>{current.distanceMeters.toLocaleString()}m</b></span><span>출처 <b>{analysis.provider === "kakao" ? "Kakao" : "OSM"}</b></span><span className="wide">주소 <b>{current.address || "공개 주소 없음"}</b></span></div></>}
-    <div className="list-heading"><h3>거리순 의료기관</h3><span>공개 등록 데이터를 그대로 표시합니다</span></div><div className="hospital-list">{hospitals.length ? hospitals.slice(0, 40).map(place => <button key={place.id} className={current?.id === place.id ? "active" : ""} onClick={() => onSelect(place)}><span className="dot age-fresh" /><div><b>{place.name}</b><small>{place.specialty || "의료기관"} · {place.distanceMeters.toLocaleString()}m</small></div><strong>{place.distanceMeters}m</strong><ChevronRight /></button>) : <div className="empty-state">반경 내 공개 등록 의료기관을 찾지 못했습니다.</div>}</div>
+    <div className="list-heading"><h3>거리순 의료기관</h3><span>클릭하면 카카오맵에서 열립니다</span></div><div className="hospital-list">{hospitals.length ? hospitals.slice(0, 40).map(place => <a key={place.id} href={kakaoPlaceLink(place)} target="_blank" rel="noopener noreferrer" aria-label={`${place.name} 카카오맵에서 보기 (새 탭)`} className={current?.id === place.id ? "active" : ""} onClick={() => onSelect(place)}><span className="dot age-fresh" /><div><b>{place.name}</b><small>{place.specialty || "의료기관"} · {place.distanceMeters.toLocaleString()}m</small></div><strong>{place.distanceMeters}m</strong><ExternalLink /></a>) : <div className="empty-state">반경 내 공개 등록 의료기관을 찾지 못했습니다.</div>}</div>
   </div>;
 }
 
@@ -287,6 +301,7 @@ function ForecastPanel({ analysis }: { analysis: LocationAnalysis }) {
       <article><span>종사자 연간 변화</span><b className={forecast.annualChange.workerPopulation < 0 ? "down" : "up"}>{trendLabel(forecast.annualChange.workerPopulation)}</b></article>
       <article><span>사업체 연간 변화</span><b className={forecast.annualChange.businesses < 0 ? "down" : "up"}>{trendLabel(forecast.annualChange.businesses)}</b></article>
     </div>
+    <ForecastLines forecast={forecast} />
     <div className="forecast-years">{forecast.projected.map(point => <article key={point.year}>
       <div><span>{point.year}</span><em>추정</em></div>
       <dl><div><dt>거주인구</dt><dd>{point.residentPopulation.toLocaleString()}명 <small>{trendLabel(Math.round(changeFromBase(point.residentPopulation, base.residentPopulation) * 10) / 10)}</small></dd></div><div><dt>종사자</dt><dd>{point.workerPopulation.toLocaleString()}명 <small>{trendLabel(Math.round(changeFromBase(point.workerPopulation, base.workerPopulation) * 10) / 10)}</small></dd></div><div><dt>사업체</dt><dd>{point.businesses.toLocaleString()}개 <small>{trendLabel(Math.round(changeFromBase(point.businesses, base.businesses) * 10) / 10)}</small></dd></div></dl>
