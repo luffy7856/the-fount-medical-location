@@ -54,11 +54,14 @@ function verifyItems(items: AiInsightItem[], allowedIds: Set<string>) {
 
 function normalizeUserFacingText(text: string) {
   return text
+    .replace(/\s*\[?\s*evidenceIds\s*:\s*\[[^\]]*\]\s*\]?/gi, "")
     .replaceAll("미연결 상태", "현재 점수에서 제외된 상태")
     .replaceAll("미연결", "현재 점수 제외")
     .replaceAll("미구성", "정밀 검토 대상")
     .replaceAll("베타 관측점수", "입지 참고점수")
-    .replaceAll("경쟁환경 점수가 0점", "경쟁환경이 과밀 수준");
+    .replaceAll("경쟁환경 점수가 0점", "경쟁환경이 과밀 수준")
+    .replace(/\s+([.!?])/g, "$1")
+    .trim();
 }
 
 function fallback(analysis: LocationAnalysis, status: AiInterpretation["status"], message: string) {

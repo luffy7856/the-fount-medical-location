@@ -187,7 +187,7 @@ function drawSummaryPage(document: PDFDocument, fonts: Fonts, analysis: Location
     c.text(metric.label, MARGIN, rowY, 9, { bold: true, color: NAVY });
     page.drawRectangle({ x: MARGIN + 96, y: rowY - 1, width: 287, height: 7, color: LINE });
     if (metric.value !== null) page.drawRectangle({ x: MARGIN + 96, y: rowY - 1, width: 287 * metric.value / 100, height: 7, color: metricColor(metric.label) });
-    c.text(metric.value === null ? "미연결" : `${metric.value}`, MARGIN + 396, rowY - 1, 10, { bold: true, color: metric.value === null ? MUTED : NAVY });
+    c.text(metric.value === null ? "자료 미반영" : `${metric.value}`, MARGIN + 396, rowY - 1, 10, { bold: true, color: metric.value === null ? MUTED : NAVY });
     c.text(c.fit(metric.note, PAGE_WIDTH - MARGIN - (MARGIN + 426), 6.7), MARGIN + 426, rowY - 1, 6.7, { color: MUTED });
   });
 
@@ -200,9 +200,9 @@ function drawSummaryPage(document: PDFDocument, fonts: Fonts, analysis: Location
     ["약국", countLabel(analysis, "pharmacy")],
     ["지하철역", countLabel(analysis, "transit")],
     ["주차시설", countLabel(analysis, "parking")],
-    ["거주인구", analysis.demographics ? `${analysis.demographics.residentPopulation.toLocaleString()}명` : "미연결"],
-    ["종사자", analysis.demographics ? `${analysis.demographics.workerPopulation.toLocaleString()}명` : "미연결"],
-    ["생활인구", analysis.livingPopulation?.status === "available" ? `${analysis.livingPopulation.total?.toLocaleString()}명` : "미연결"]
+    ["거주인구", analysis.demographics ? `${analysis.demographics.residentPopulation.toLocaleString()}명` : "자료 미반영"],
+    ["종사자", analysis.demographics ? `${analysis.demographics.workerPopulation.toLocaleString()}명` : "자료 미반영"],
+    ["생활인구", analysis.livingPopulation?.status === "available" ? `${analysis.livingPopulation.total?.toLocaleString()}명` : "자료 미반영"]
   ];
   observed.forEach(([label, value], index) => {
     const column = index % 4;
@@ -281,7 +281,7 @@ function drawEvidencePage(document: PDFDocument, fonts: Fonts, analysis: Locatio
     const rowY = c.y - index * 30;
     if (index % 2 === 0) page.drawRectangle({ x: MARGIN, y: rowY - 10, width: PAGE_WIDTH - MARGIN * 2, height: 27, color: PALE });
     c.text(metric.label, MARGIN + 8, rowY, 8.5, { bold: true, color: NAVY });
-    c.text(metric.value === null ? "미연결" : `${metric.value} / 100`, MARGIN + 124, rowY, 8.5, { bold: true, color: metric.value === null ? MUTED : metricColor(metric.label) });
+    c.text(metric.value === null ? "자료 미반영" : `${metric.value} / 100`, MARGIN + 124, rowY, 8.5, { bold: true, color: metric.value === null ? MUTED : metricColor(metric.label) });
     c.paragraph(metric.note, MARGIN + 203, rowY, PAGE_WIDTH - MARGIN - (MARGIN + 211), 7.2, 9, { color: MUTED, maxLines: 2 });
   });
 
