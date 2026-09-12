@@ -525,8 +525,6 @@ export default function LocationLab() {
           <button type="button" className={tab === "forecast" ? "active" : ""} aria-pressed={tab === "forecast"} onClick={() => setTab("forecast")}><TrendingUp /><span>3년전망</span></button>
           <button type="button" className={tab === "profitability" ? "active" : ""} aria-pressed={tab === "profitability"} onClick={() => setTab("profitability")}><Calculator /><span>수익성</span></button>
           <button type="button" className={tab === "compare" ? "active" : ""} aria-pressed={tab === "compare"} onClick={() => setTab("compare")}><GitCompareArrows /><span>후보지 비교</span></button>
-          <button type="button" className="mobile-print mobile-download" disabled={reportDownloading} onClick={() => void downloadReport()} title="PDF 보고서 다운로드">{reportDownloading ? <Activity className="spin" /> : <Download />}</button>
-          <button type="button" className="mobile-print" onClick={printReport} title="현재 화면 인쇄"><Printer /></button>
         </nav>
         <div key={tab} className="panel-view">
           {tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} aiLoading={aiLoading} />}
