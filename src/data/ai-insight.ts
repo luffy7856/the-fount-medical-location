@@ -11,8 +11,8 @@ export function buildInsightEvidence(analysis: LocationAnalysis): InsightEvidenc
   const facts: InsightEvidence[] = [];
   const official = analysis.hiraMedical?.status === "available";
   addFact(facts, "location", "분석 조건", `${analysis.location.displayName.split(",")[0]} · ${analysis.specialty} · 반경 ${analysis.radiusMeters.toLocaleString()}m`, "사용자 선택");
-  addFact(facts, "score", "베타 관측점수", `${analysis.observedScore}점 / ${analysis.grade}등급`, "연결 지표 가중평균");
-  addFact(facts, "coverage", "데이터 충족률", `${analysis.confidence}% (예측 정확도 아님)`, "THE FOUNT 연결 상태");
+  addFact(facts, "score", "입지 참고점수", analysis.confidence < 90 ? `${analysis.observedScore}점 · 후보지 비교용` : `${analysis.observedScore}점 / ${analysis.grade}등급`, "확인된 지표 가중평균");
+  addFact(facts, "coverage", "데이터 반영범위", `${analysis.confidence}% (예측 정확도 아님)`, "THE FOUNT 분석 범위");
   addFact(facts, "medical", "전체 의료기관", `${analysis.counts.medical.toLocaleString()}곳${analysis.countLimits?.medical ? " 이상" : ""}`, official ? "HIRA 신고 기준" : `${analysis.provider === "kakao" ? "Kakao" : "OpenStreetMap"} 장소검색`);
   addFact(facts, "specialty", `${analysis.specialty} 경쟁기관`, `${analysis.counts.matchingSpecialty.toLocaleString()}곳${analysis.countLimits?.matchingSpecialty ? " 이상" : ""}`, analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? "HIRA 진료과목 코드" : "장소명·분류 검색");
   addFact(facts, "pharmacy", "약국", `${analysis.counts.pharmacy.toLocaleString()}곳${analysis.countLimits?.pharmacy ? " 이상" : ""}`, analysis.hiraMedical?.pharmacyCount !== undefined ? "HIRA 약국정보" : "장소검색");
@@ -62,7 +62,11 @@ export function buildRuleInterpretation(analysis: LocationAnalysis, status: AiIn
   });
   const missing = analysis.dataConnections?.filter(connection => connection.status !== "available").slice(0, 3) || [];
   const nextChecks = missing.length
-    ? missing.map(connection => item(`${connection.label} 데이터를 보강해 최종 판단 범위를 넓히세요.`, ["coverage"]))
+    ? missing.map(connection => item(connection.id === "rent"
+      ? "실제 임대조건을 확인해 비용효율 판단을 보강하세요."
+      : connection.id === "development"
+        ? "주변 개발계획의 확정 여부를 확인해 성장성 판단을 보강하세요."
+        : `${connection.label} 자료를 추가 확인해 판단 범위를 넓히세요.`, ["coverage"]))
     : [item("현장 보행 동선과 실제 임대조건을 대조한 뒤 최종 계약 여부를 결정하세요.", ["location", "coverage"])];
   return {
     status,
