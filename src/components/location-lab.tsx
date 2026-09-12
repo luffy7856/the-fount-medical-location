@@ -78,8 +78,9 @@ function Brand() {
 }
 
 function MetricBars({ metrics }: { metrics: LiveMetric[] }) {
-  return <div className="score-bars">{metrics.map(metric => <div className={`score-row ${metric.value === null ? "pending" : ""}`} key={metric.label}>
-    <span>{metric.label}</span><div>{metric.value === null ? <small>{metric.note}</small> : <i style={{ width: `${metric.value}%`, background: metric.color }} />}</div><b>{metric.value ?? "—"}</b>
+  const connected = metrics.filter((metric): metric is LiveMetric & { value: number } => metric.value !== null);
+  return <div className="score-bars">{connected.map(metric => <div className="score-row" key={metric.label}>
+    <span>{metric.label}</span><div title={metric.note}><i style={{ width: `${Math.max(metric.value, 3)}%`, background: metric.color }} /></div><b>{metric.label === "경쟁환경" && metric.value === 0 ? "과밀" : metric.value}</b>
   </div>)}</div>;
 }
 
@@ -93,9 +94,10 @@ function calculateObservedScore(metrics: LiveMetric[]) {
 
 function DecisionEvidence({ analysis }: { analysis: LocationAnalysis }) {
   const connected = analysis.metrics.filter(metric => metric.value !== null);
+  const excluded = analysis.metrics.filter(metric => metric.value === null).map(metric => metric.label);
   const connectedWeight = connected.reduce((sum, metric) => sum + (FACTOR_WEIGHTS[metric.label] || 0), 0);
-  const decision = analysis.confidence < 70
-    ? { label: "조건부 검토", tone: "hold", text: "후보지 비교에는 사용할 수 있지만, 공식 의료기관·소비·임대료·개발계획을 보강하기 전에는 최종 계약 판단을 보류합니다." }
+  const decision = analysis.confidence < 90
+    ? { label: "후보지 비교용", tone: "hold", text: "현재 확인된 실제 데이터로 후보지의 상대적인 장단점을 비교할 수 있습니다. 계약 전에는 현장 동선과 실제 임대조건을 함께 확인하세요." }
     : analysis.observedScore >= 75
       ? { label: "우선 검토", tone: "positive", text: "연결된 데이터에서는 긍정 신호가 우세합니다. 현장 동선과 실제 임대조건을 확인한 뒤 개원계획 검토를 진행할 수 있습니다." }
       : analysis.observedScore >= 60
@@ -103,31 +105,20 @@ function DecisionEvidence({ analysis }: { analysis: LocationAnalysis }) {
         : { label: "신중 검토", tone: "negative", text: "현재 확인된 수요·경쟁·접근성 신호가 충분하지 않습니다. 대체 후보지 비교를 우선합니다." };
   return <section className="panel-section decision-evidence">
     <div className="panel-title"><div><span>EVIDENCE TO DECISION</span><h3>입지 판단 근거와 최종 결론</h3></div></div>
-    <div className="evidence-flow"><span>실제 원자료</span><ArrowRight /><span>항목별 0~100</span><ArrowRight /><span>가중평균</span><ArrowRight /><strong>{decision.label}</strong></div>
-    <div className="evidence-table">
-      <div className="head"><span>판단항목</span><span>가중치</span><span>점수·근거</span></div>
-      {analysis.metrics.map(metric => <div key={metric.label} className={metric.value === null ? "pending" : ""}>
-        <b>{metric.label}</b><span>{FACTOR_WEIGHTS[metric.label]}%</span><p><strong>{metric.value ?? "미연결"}</strong><small>{metric.note}</small></p>
-      </div>)}
-    </div>
-    <div className="weight-coverage"><div><i style={{ width: `${connectedWeight}%` }} /></div><span>점수 가중치 중 {connectedWeight}% 항목 연결 · 전체 데이터 충족률 {analysis.confidence}%</span></div>
-    <article className={`final-decision ${decision.tone}`}><span>최종 분석판단</span><h3>{decision.label}</h3><p>{decision.text}</p><small>베타 관측점수 {analysis.observedScore}점 · 데이터 충족률 {analysis.confidence}% · 분석 반경 {analysis.radiusMeters.toLocaleString()}m</small></article>
-    {analysis.limitations.length > 0 && <div className="analysis-limitations"><b>판단할 때 함께 볼 한계</b><ul>{analysis.limitations.map(item => <li key={item}>{item}</li>)}</ul></div>}
+    <article className={`final-decision ${decision.tone}`}><span>현재 판단</span><h3>{decision.label}</h3><p>{decision.text}</p><small>연결 데이터 기준 참고점수 {analysis.observedScore}점 · 반영 범위 {analysis.confidence}% · 분석 반경 {analysis.radiusMeters.toLocaleString()}m</small></article>
+    <details className="evidence-details">
+      <summary>점수 산정 근거 보기</summary>
+      <div className="evidence-flow"><span>실제 원자료</span><ArrowRight /><span>항목별 0~100</span><ArrowRight /><span>가중평균</span><ArrowRight /><strong>{decision.label}</strong></div>
+      <div className="evidence-table">
+        <div className="head"><span>판단항목</span><span>가중치</span><span>점수·근거</span></div>
+        {connected.map(metric => <div key={metric.label}>
+          <b>{metric.label}</b><span>{FACTOR_WEIGHTS[metric.label]}%</span><p><strong>{metric.label === "경쟁환경" && metric.value === 0 ? "과밀" : metric.value}</strong><small>{metric.note}</small></p>
+        </div>)}
+      </div>
+      <div className="weight-coverage"><div><i style={{ width: `${connectedWeight}%` }} /></div><span>전체 가중치 중 {connectedWeight}% 반영{excluded.length ? ` · ${excluded.join("·")}은 현재 산정에서 제외` : ""}</span></div>
+      {analysis.limitations.length > 0 && <div className="analysis-limitations"><b>함께 확인할 조건</b><ul>{analysis.limitations.map(item => <li key={item}>{item}</li>)}</ul></div>}
+    </details>
   </section>;
-}
-
-function DataConnections({ analysis }: { analysis: LocationAnalysis }) {
-  const statusLabel = { available: "실데이터", not_configured: "키 대기", unsupported: "지역 미지원", no_data: "자료 없음", error: "연결 점검" } as const;
-  if (!analysis.dataConnections?.length) return null;
-  return <section className="panel-section connection-section"><div className="panel-title"><div><span>PROVIDER ADAPTERS</span><h3>정밀 데이터 연결 상태</h3></div></div><div className="connection-grid">
-    {analysis.dataConnections.map(item => <article key={item.id} className={item.status}>
-      <div><b>{item.label}</b><em>{statusLabel[item.status]}</em></div><span>{item.source}</span><p>{item.message}</p>
-      {item.status !== "available" && (item.requiredEnvironmentVariables.length
-        ? <small>필요 설정: {item.requiredEnvironmentVariables.join(" · ")}</small>
-        : <small>환경설정 완료 · 공급자 응답 점검 필요</small>)}
-      <a href={item.setupUrl} target="_blank" rel="noreferrer">공식 신청·안내 <ExternalLink /></a>
-    </article>)}
-  </div><p className="connection-security">승인키는 서버 환경변수에서만 읽으며 브라우저 응답·화면·로그에는 키 값을 반환하지 않습니다.</p></section>;
 }
 
 function formatCount(analysis: LocationAnalysis, key: keyof LocationAnalysis["counts"]) {
@@ -155,17 +146,19 @@ function FinancialPlanningPanel({ analysis, inputs, onChange, compact = false }:
     ["monthlyRentManwon", "월세", "만원/월"], ["openingBudgetManwon", "시설·장비 등 개원자금", "만원"],
     ["monthlyPayrollManwon", "예상 월 인건비", "만원/월"], ["monthlyMarketingManwon", "예상 월 마케팅비", "만원/월"]
   ];
+  const compactMoney = (value: number) => value >= 10000 ? `${(value / 10000).toFixed(1)}억원` : `${value.toLocaleString()}만원`;
   return <section className={`panel-section feasibility-card ${compact ? "compact" : ""}`}>
     <div className="feasibility-heading"><div><span>OPENING FEASIBILITY</span><h3>입지와 개원자금을 함께 비교합니다</h3><p>{analysis.specialty} 기준 참고모형에 층·면적·임대조건과 현재 입지 관측점수를 반영합니다.</p></div><Calculator /></div>
     <div className="opening-input-grid">{fields.map(([key, label, unit]) => <label key={key}><span>{label}</span><div><input type="number" min={key === "floor" ? -2 : 0} value={inputs[key]} onChange={event => update(key, Number(event.target.value))} /><small>{unit}</small></div></label>)}</div>
+    <div className="estimate-notice"><AlertTriangle /><p><b>입력값 기반 사전 시뮬레이션</b><span>아래 결과는 후보지 비교를 돕는 참고 범위이며 실제 매출·수익이나 대출심사 결과를 보장하지 않습니다.</span></p></div>
     <div className="feasibility-results">
-      <article><Building2 /><span>예상 월매출</span><b>{result.expectedRevenue.toLocaleString()}만원</b><small>{result.revenueLow.toLocaleString()}~{result.revenueHigh.toLocaleString()}만원 범위</small></article>
-      <article><Coins /><span>예상 월 영업잉여</span><b className={result.monthlyOperatingProfit <= 0 ? "negative" : ""}>{result.monthlyOperatingProfit.toLocaleString()}만원</b><small>세금·대출원리금·원장 보수 전</small></article>
-      <article><TimerReset /><span>예상 투자회수기간</span><b>{result.paybackMonths ? `${result.paybackMonths}개월` : "회수 어려움"}</b><small>보증금 포함 총투자액 기준</small></article>
+      <article className="revenue-range"><Building2 /><span>월매출 참고범위</span><b>{compactMoney(result.revenueLow)}~{compactMoney(result.revenueHigh)}</b><small>중간 참고값 {compactMoney(result.expectedRevenue)} · 입력값 변경 시 재계산</small></article>
+      <article><Coins /><span>월 영업잉여 참고값</span><b className={result.monthlyOperatingProfit <= 0 ? "negative" : ""}>{result.monthlyOperatingProfit.toLocaleString()}만원</b><small>세금·대출원리금·원장 보수 전</small></article>
+      <article><TimerReset /><span>투자회수 참고값</span><b>{result.paybackMonths ? `${result.paybackMonths}개월` : "추가 검토"}</b><small>보증금 포함 총투자액 기준</small></article>
     </div>
     <div className="benchmark-strip"><div><span>입력 총투자액</span><b>{result.totalCashInvestment.toLocaleString()}만원</b></div><ArrowRight /><div><span>{analysis.specialty} 면적 기준 참고 개원자금</span><b>{result.benchmarkCapital.toLocaleString()}만원</b></div><div className={result.capitalDifference > 10 ? "warning" : "healthy"}><span>참고값 대비</span><b>{result.capitalDifference > 0 ? "+" : ""}{result.capitalDifference}%</b></div></div>
     <div className="planning-notes"><span>월세/예상매출 {result.rentRatio}%</span><span>{inputs.floor}층 입지 보정 반영</span><span>입지점수 {analysis.observedScore || "—"}점 반영</span></div>
-    <p className="estimate-disclaimer">본 수치는 입력값과 진료과별 내부 참고계수를 이용한 사전 시뮬레이션이며 보장 매출이 아닙니다. 실제 개원 전에는 상권·수가·장비·인력·운영일수와 금융조건을 별도로 검증해야 합니다.</p>
+    <p className="estimate-disclaimer">실제 개원 전에는 상권·수가·장비·인력·운영일수와 금융조건을 별도로 검증해야 합니다.</p>
   </section>;
 }
 
@@ -196,7 +189,7 @@ function GroundedInsight({ analysis, loading }: { analysis: LocationAnalysis; lo
   </section>;
 }
 
-function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs, aiLoading }: { analysis: LocationAnalysis; onTab: (tab: PanelTab) => void; openingInputs: OpeningInputs; onOpeningInputs: (value: OpeningInputs) => void; aiLoading: boolean }) {
+function OverviewPanel({ analysis, onTab, aiLoading }: { analysis: LocationAnalysis; onTab: (tab: PanelTab) => void; aiLoading: boolean }) {
   const stats = [
     ["전체 의료기관", formatCount(analysis, "medical"), analysis.hiraMedical?.status === "available" ? "HIRA 신고 기준 공식 수" : analysis.countLimits?.medical ? "카카오 조회 상한 도달" : "Kakao 장소검색 기준"],
     [`${analysis.specialty} ${analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? "공식 수" : "검색"}`, formatCount(analysis, "matchingSpecialty"), analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? "HIRA 진료과목 코드 기준" : "Kakao 분류·검색 기준"],
@@ -210,17 +203,16 @@ function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs, aiLoad
     ...(analysis.rentMarket?.status === "available" ? [["평당 월세 중앙값", `${analysis.rentMarket.monthlyRentPerPyeongManwon?.toLocaleString()}만원`, `${analysis.rentMarket.sampleCount}개 표본`]] : []),
     ...(analysis.developmentPlans?.status === "available" ? [["주변 개발계획", `${analysis.developmentPlans.plans.length}건`, `반경 ${analysis.developmentPlans.radiusMeters.toLocaleString()}m`]] : [])
   ];
-  const missing = analysis.dataConnections?.filter(item => item.status !== "available").map(item => item.label) || [];
+  const excluded = analysis.metrics.filter(metric => metric.value === null).map(metric => metric.label);
   return <div className="panel-content">
     <div className="location-heading"><div><span><MapPin /> 실제 분석 지역</span><h2>{analysis.location.displayName.split(",")[0]}</h2><p>{analysis.specialty} · 반경 {analysis.radiusMeters.toLocaleString()}m</p></div></div>
-    <div className="score-hero live-score"><div className="gauge" style={{ background: `conic-gradient(#35d0b0 0 ${analysis.observedScore}%,rgba(255,255,255,.15) ${analysis.observedScore}%)` }}><div><b>{analysis.observedScore || "—"}</b><small>/100</small></div></div><div><span>LIVE OBSERVED SCORE</span><h3>{analysis.grade} 등급</h3><p>현재 연결된 실제 데이터 범위의 <b>베타 관측점수</b></p></div><div className="confidence"><ShieldCheck /><span>데이터 충족률</span><b>{analysis.confidence}%</b><small>정확도 아님</small></div></div>
-    <p className="score-disclaimer">현재 연결된 실제 자료만 점수에 반영했습니다. 데이터 충족률은 예측 정확도나 개원 성공확률이 아닙니다.{missing.length ? ` 미연결: ${missing.join("·")}.` : " 네 가지 정밀 데이터가 모두 연결되었습니다."}</p>
+    <div className="score-hero live-score"><div className="gauge" style={{ background: `conic-gradient(#35d0b0 0 ${analysis.observedScore}%,rgba(255,255,255,.15) ${analysis.observedScore}%)` }}><div><b>{analysis.observedScore || "—"}</b><small>/100</small></div></div><div><span>MEDICAL LOCATION SCORE</span><h3>{analysis.confidence < 90 ? "후보지 비교용" : `${analysis.grade} 등급`}</h3><p>확인된 실제 데이터만 반영한 <b>참고점수</b></p></div><div className="confidence"><ShieldCheck /><span>반영 범위</span><b>{analysis.confidence}%</b><small>정확도 아님</small></div></div>
+    <p className="score-disclaimer">이 점수는 개원 성공확률이 아니라 후보지 비교용 지표입니다.{excluded.length ? ` ${excluded.join("·")}은 자료가 확보되기 전까지 점수 산정에서 제외됩니다.` : " 모든 핵심 항목이 반영되었습니다."}</p>
     <div className="stats-grid">{stats.map(([label, value, meta]) => <article key={label}><span>{label}</span><b>{value}</b><small>{meta}</small></article>)}</div>
-    <section className="panel-section"><div className="panel-title"><div><span>CONNECTED FACTORS</span><h3>실제 데이터 연결 현황</h3></div><button onClick={() => onTab("competitors")}>경쟁병원 <ChevronRight /></button></div><MetricBars metrics={analysis.metrics} /></section>
+    <section className="panel-section"><div className="panel-title"><div><span>ANALYSIS FACTORS</span><h3>현재 확인된 핵심 지표</h3></div><button onClick={() => onTab("competitors")}>경쟁병원 <ChevronRight /></button></div><MetricBars metrics={analysis.metrics} /></section>
     <DecisionEvidence analysis={analysis} />
     <GroundedInsight analysis={analysis} loading={aiLoading} />
-    <DataConnections analysis={analysis} />
-    <FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={onOpeningInputs} compact />
+    <button className="profitability-entry" type="button" onClick={() => onTab("profitability")}><span><Calculator /><b>수익성은 입력값으로 직접 확인하세요</b><small>면적·월세·개원자금을 입력하면 참고 매출범위와 회수기간을 계산합니다.</small></span><ChevronRight /></button>
     <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><a className="next-step-link" href="https://www.thefount.co.kr/" target="_blank" rel="noopener noreferrer">정밀 개원분석 상담하기 <ArrowRight /></a></section>
     <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span>{analysis.hiraMedical?.status === "available" && <span>HIRA 공식 수치</span>}{analysis.demographics && <span>SGIS {analysis.demographics.year}</span>}{analysis.livingPopulation?.status === "available" && <span>서울 생활인구</span>}{analysis.consumerPower?.status === "available" && <span>서울시 소비</span>}{analysis.rentMarket?.status === "available" && <span>상가 임대료</span>}{analysis.developmentPlans?.status === "available" && <span>개발계획</span>}</div><small>분석 시각 {formatAnalysisTime(analysis.analyzedAt)}{analysis.livingPopulation?.status === "available" ? ` · 생활인구 공간 단위: ${analysis.livingPopulation.spatialUnit}${analysis.livingPopulation.spatialUnit === "250m 격자" ? "(고유 격자 합계)" : "(행정동 집계)"}` : ""} · 공개 데이터의 등록 상태에 따라 현장과 차이가 있을 수 있습니다.</small></section>
     <PrintAppendix analysis={analysis} />
@@ -508,7 +500,7 @@ export default function LocationLab() {
           <button type="button" className="mobile-print" onClick={printReport} title="현재 화면 인쇄"><Printer /></button>
         </nav>
         <div key={tab} className="panel-view">
-          {tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} aiLoading={aiLoading} />}
+          {tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} aiLoading={aiLoading} />}
           {tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}
           {tab === "forecast" && <ForecastPanel analysis={analysis} />}
           {tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}
