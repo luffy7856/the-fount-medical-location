@@ -35,6 +35,14 @@ export default function LiveMap({ analysis, activeKinds, selected, onPlace, onSe
     <MapUpdater latitude={latitude} longitude={longitude} radius={analysis.radiusMeters} />
     <MapClick onSelect={onSelectCoordinate} />
     <Circle center={[latitude, longitude]} radius={analysis.radiusMeters} pathOptions={{ color: "#0f937d", fillColor: "#38b2ac", fillOpacity: .08, weight: 2, dashArray: "6 7" }} />
+    {analysis.seoulRealtime && activeKinds.has("floatingPopulation") && <>
+      <Circle
+        center={[analysis.seoulRealtime.anchorLatitude, analysis.seoulRealtime.anchorLongitude]}
+        radius={Math.max(260, Math.min(720, Math.sqrt((analysis.seoulRealtime.currentMin + analysis.seoulRealtime.currentMax) / 2) * 3.1))}
+        pathOptions={{ className: "population-zone", color: "#009f88", fillColor: "#37d6b1", fillOpacity: .18, weight: 2 }}
+      ><Popup><strong>{analysis.seoulRealtime.areaName} 실시간 인구</strong><br />{analysis.seoulRealtime.currentMin.toLocaleString()}~{analysis.seoulRealtime.currentMax.toLocaleString()}명<br />혼잡도 {analysis.seoulRealtime.congestionLevel}<br /><small>서울 주요장소 단위 · {analysis.seoulRealtime.measuredAt}</small></Popup></Circle>
+      <CircleMarker center={[analysis.seoulRealtime.anchorLatitude, analysis.seoulRealtime.anchorLongitude]} radius={13} bubblingMouseEvents={false} pathOptions={{ className: "population-pulse", color: "#fff", fillColor: "#00a98f", fillOpacity: .9, weight: 3 }} />
+    </>}
     <CircleMarker center={[latitude, longitude]} radius={9} bubblingMouseEvents={false} pathOptions={{ color: "#fff", fillColor: "#14263d", fillOpacity: 1, weight: 4 }}>
       <Popup><b>분석 중심지</b><br />{analysis.location.displayName}</Popup>
     </CircleMarker>

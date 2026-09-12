@@ -61,6 +61,7 @@ const EMPTY_ANALYSIS: LocationAnalysis = {
 };
 
 const LIVE_LAYERS = [
+  { id: "floatingPopulation", label: "실시간 인구", color: "#00a98f" },
   { id: "hospital", label: "의료기관", color: "#e55e48" },
   { id: "pharmacy", label: "약국", color: "#3182ce" },
   { id: "transit", label: "지하철역", color: "#0f937d" },
@@ -116,6 +117,20 @@ function calculateOpeningPlan(analysis: LocationAnalysis, inputs: OpeningInputs)
   };
 }
 
+function SeoulRealtimePanel({ analysis }: { analysis: LocationAnalysis }) {
+  const live = analysis.seoulRealtime;
+  if (!live) return <section className="panel-section realtime-card unavailable"><div className="realtime-heading"><Activity /><div><span>REAL-TIME POPULATION</span><h3>실시간 인구 지원지역이 아닙니다</h3></div></div><p>서울시가 제공하는 주요 121장소와 가까운 분석지점에서만 실시간 인구가 표시됩니다. 지원되지 않는 지역은 추정값을 만들지 않습니다.</p></section>;
+  const forecastMax = Math.max(...live.forecasts.map(item => item.max), live.currentMax, 1);
+  const topAges = Object.entries(live.ageRates).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([age]) => age).join("·");
+  return <section className="panel-section realtime-card">
+    <div className="realtime-heading"><Activity /><div><span>SEOUL LIVE · {live.areaCode}</span><h3>{live.areaName} 실시간 인구</h3><p>분석 지점에서 {live.distanceMeters.toLocaleString()}m 떨어진 서울시 지원장소 기준</p></div><em>{live.congestionLevel}</em></div>
+    <div className="realtime-numbers"><div><span>현재 추정인구</span><b>{live.currentMin.toLocaleString()}~{live.currentMax.toLocaleString()}명</b><small>{live.measuredAt}</small></div><div><span>비거주 인구</span><b>{live.nonResidentRate}%</b><small>주요 연령 {topAges}</small></div><div><span>상권 활력</span><b>{live.commerce?.level || "미제공"}</b><small>{live.commerce?.measuredAt || "해당 장소 상권 데이터 없음"}</small></div></div>
+    <p className="congestion-copy">{live.congestionMessage}</p>
+    {live.forecasts.length > 0 && <div className="live-forecast"><b>시간대별 인구 전망</b><div>{live.forecasts.slice(0, 6).map(item => <span key={item.time}><i style={{ height: `${Math.max(12, item.max / forecastMax * 100)}%` }} /><small>{item.time.slice(11, 16)}</small><em>{Math.round((item.min + item.max) / 2000)}천</em></span>)}</div></div>}
+    <small className="coverage-caution">서울 주요장소 단위의 통신 기반 추정치이며, 선택 반경 전체의 유동인구 합계가 아닙니다.</small>
+  </section>;
+}
+
 function FinancialPlanningPanel({ analysis, inputs, onChange, compact = false }: { analysis: LocationAnalysis; inputs: OpeningInputs; onChange: (value: OpeningInputs) => void; compact?: boolean }) {
   const result = calculateOpeningPlan(analysis, inputs);
   const update = (key: keyof OpeningInputs, value: number) => onChange({ ...inputs, [key]: Number.isFinite(value) ? value : 0 });
@@ -146,6 +161,7 @@ function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs }: { an
     ["지하철역", formatCount(analysis, "transit"), "카카오 역 카테고리"],
     ["주차시설", formatCount(analysis, "parking"), analysis.countLimits?.parking ? "카카오 조회 상한 도달" : "공개 등록 기준"],
     ["분석 반경", `${analysis.radiusMeters.toLocaleString()}m`, analysis.provider === "kakao" ? "Kakao Local" : "OpenStreetMap"],
+    ...(analysis.seoulRealtime ? [["실시간 인구", `${analysis.seoulRealtime.currentMin.toLocaleString()}~${analysis.seoulRealtime.currentMax.toLocaleString()}명`, `${analysis.seoulRealtime.areaName} · ${analysis.seoulRealtime.congestionLevel}`]] : []),
     ...(analysis.demographics ? [["거주인구", `${analysis.demographics.residentPopulation.toLocaleString()}명`, `${analysis.demographics.areaName} · SGIS ${analysis.demographics.year}`], ["종사자", `${analysis.demographics.workerPopulation.toLocaleString()}명`, `${analysis.demographics.businesses.toLocaleString()}개 사업체`]] : [])
   ];
   return <div className="panel-content">
@@ -153,12 +169,13 @@ function OverviewPanel({ analysis, onTab, openingInputs, onOpeningInputs }: { an
     <div className="score-hero live-score"><div className="gauge" style={{ background: `conic-gradient(#35d0b0 0 ${analysis.observedScore}%,rgba(255,255,255,.15) ${analysis.observedScore}%)` }}><div><b>{analysis.observedScore || "—"}</b><small>/100</small></div></div><div><span>LIVE OBSERVED SCORE</span><h3>{analysis.grade} 등급</h3><p>현재 연결된 실제 데이터 범위의 <b>베타 관측점수</b></p></div><div className="confidence"><ShieldCheck /><span>Data Coverage</span><b>{analysis.confidence}%</b></div></div>
     <p className="score-disclaimer">유동인구·소득·임대료가 연결되기 전의 제한 점수입니다. 개원 타당성 최종점수로 사용하지 않습니다.</p>
     <div className="stats-grid">{stats.map(([label, value, meta]) => <article key={label}><span>{label}</span><b>{value}</b><small>{meta}</small></article>)}</div>
+    <SeoulRealtimePanel analysis={analysis} />
     <section className="panel-section"><div className="panel-title"><div><span>CONNECTED FACTORS</span><h3>실제 데이터 연결 현황</h3></div><button onClick={() => onTab("competitors")}>경쟁병원 <ChevronRight /></button></div><MetricBars metrics={analysis.metrics} /></section>
     <section className="panel-section ai-insight"><div className="ai-heading"><Sparkles /><div><span>LOCATION INTERPRETATION</span><h3>현재 데이터에 대한 해석</h3></div></div><p>{analysis.insight}</p><div className="pros-cons"><div><b><Check /> 확인된 신호</b>{analysis.strengths.map(item => <span key={item}>{item}</span>)}</div><div><b><AlertTriangle /> 확인 필요</b>{analysis.risks.map(item => <span key={item}>{item}</span>)}</div></div></section>
-    <section className="panel-section data-coverage"><span>DATA ROADMAP</span><h3>정밀점수에 필요한 추가 데이터</h3><p>건강보험심사평가원·통계청·상권·임대료 API 인증키를 연결하면 잠재환자, 소비력, 비용효율, 성장성까지 실제 수치로 확장됩니다.</p></section>
+    <section className="panel-section data-coverage"><span>DATA ROADMAP</span><h3>정밀점수에 필요한 추가 데이터</h3><p>건강보험심사평가원·임대료·개폐업·개발계획 데이터를 연결하면 경쟁환경, 비용효율, 성장성까지 공식 수치로 확장됩니다.</p></section>
     <FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={onOpeningInputs} compact />
     <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><button>정밀 개원분석 상담하기 <ArrowRight /></button></section>
-    <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span><span>실제 좌표</span><span>실제 등록 장소</span></div><small>분석 시각 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")} · 공개 데이터의 등록 상태에 따라 현장과 차이가 있을 수 있습니다.</small></section>
+    <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span>{analysis.demographics && <span>SGIS {analysis.demographics.year}</span>}{analysis.seoulRealtime && <span>서울 실시간 도시데이터</span>}<span>실제 좌표</span><span>실제 등록 장소</span></div><small>분석 시각 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")} · 공개 데이터의 등록 상태와 공간 단위에 따라 현장과 차이가 있을 수 있습니다.</small></section>
   </div>;
 }
 
@@ -255,12 +272,12 @@ export default function LocationLab() {
     <div className="workspace">
       <section className="map-area">
         <LiveMap analysis={analysis} activeKinds={activeKinds} selected={selectedPlace} onPlace={place => { setSelectedPlace(place); if (place.kind === "hospital") setTab("competitors"); }} onSelectCoordinate={(latitude, longitude) => void runAnalysis({ latitude, longitude })} />
-        <div className="map-summary"><span>{analysis.specialty} · 반경 {radiusLabel}</span><b>의료기관 {formatCount(analysis, "medical")}</b><em>{analysis.provider === "kakao" ? "KAKAO LIVE" : "OSM LIVE"}</em></div>
+        <div className="map-summary"><span>{analysis.specialty} · 반경 {radiusLabel}</span><b>의료기관 {formatCount(analysis, "medical")}</b>{analysis.seoulRealtime && <strong>실시간 {analysis.seoulRealtime.currentMin.toLocaleString()}~{analysis.seoulRealtime.currentMax.toLocaleString()}명</strong>}<em>{analysis.provider === "kakao" ? "KAKAO LIVE" : "OSM LIVE"}</em></div>
         <div className="layer-control"><button className="layer-trigger" onClick={() => setLayerOpen(!layerOpen)}><Layers3 /> 실제 지도 레이어 <b>{activeKinds.size}</b><ChevronDown /></button>{layerOpen && <div className="layer-menu"><div><b>표시할 실제 데이터</b><button onClick={() => setLayerOpen(false)}><X /></button></div>{LIVE_LAYERS.map(layer => <label key={layer.id}><input type="checkbox" checked={activeKinds.has(layer.id)} onChange={() => toggleLayer(layer.id)} /><i style={{ background: layer.color }} /><span>{layer.label}</span></label>)}<small>지도 클릭 시 해당 좌표를 새로 분석합니다.</small></div>}</div>
-        <div className="live-map-note"><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span></div>
+        <div className="live-map-note">{analysis.seoulRealtime && <span><i className="population-dot" /> 실시간 인구</span>}<span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span></div>
       </section>
       <aside className="analysis-panel"><div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>발행 {new Date(analysis.analyzedAt).toLocaleString("ko-KR")}</small></div><div className="sheet-handle" /><div className="panel-tabs"><button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>지역분석</button><button className={tab === "competitors" ? "active" : ""} onClick={() => setTab("competitors")}>경쟁병원</button><button className={tab === "forecast" ? "active" : ""} onClick={() => setTab("forecast")}>3년전망</button><button className={tab === "profitability" ? "active" : ""} onClick={() => setTab("profitability")}>수익성</button><button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>후보지 비교</button><button className="mobile-print" onClick={printReport} title="PDF로 저장하거나 인쇄"><Printer /></button></div>{tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} />}{tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}{tab === "forecast" && <ForecastPanel />}{tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}{tab === "compare" && <ComparePanel saved={saved} />}</aside>
     </div>
-    {loading && <div className="loading-mask"><div><Activity className="spin" /><b>{specialty} 주변 실제 데이터를 조회하고 있습니다</b><span>주소 좌표 · 의료기관 · 약국 · 지하철역 · 주차</span></div></div>}
+    {loading && <div className="loading-mask"><div><Activity className="spin" /><b>{specialty} 주변 실제 데이터를 조회하고 있습니다</b><span>주소 좌표 · 의료기관 · 약국 · 인구 · 서울 실시간 상권</span></div></div>}
   </main>;
 }

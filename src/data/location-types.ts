@@ -73,6 +73,36 @@ export type LocationAnalysis = {
     businesses: number;
     averageAge: number | null;
   };
+  seoulRealtime?: {
+    source: "서울 실시간 도시데이터";
+    areaName: string;
+    areaCode: string;
+    coverage: "서울 주요장소";
+    anchorLatitude: number;
+    anchorLongitude: number;
+    distanceMeters: number;
+    currentMin: number;
+    currentMax: number;
+    congestionLevel: string;
+    congestionMessage: string;
+    measuredAt: string;
+    maleRate: number;
+    femaleRate: number;
+    residentRate: number;
+    nonResidentRate: number;
+    ageRates: Record<string, number>;
+    forecasts: Array<{
+      time: string;
+      min: number;
+      max: number;
+      congestionLevel: string;
+    }>;
+    commerce?: {
+      level: string;
+      measuredAt: string;
+      paymentActivityIndex: number | null;
+    };
+  };
   needsClientFetch?: boolean;
   osmQuery?: string;
 };
