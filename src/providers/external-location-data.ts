@@ -60,8 +60,11 @@ async function fetchHiraCount(baseUrl: string, key: string, context: ProviderCon
   const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(9000) });
   const xml = await response.text();
   if (!response.ok || /SERVICE_(?:ACCESS_DENIED|KEY_IS_NOT_REGISTERED)|PERMISSION_DENIED/i.test(xml)) throw new Error("승인키 권한을 확인해주세요.");
-  const total = Number(xmlValue(xml, "totalCount"));
-  if (!Number.isFinite(total)) throw new Error(xmlValue(xml, "returnAuthMsg") || xmlValue(xml, "resultMsg") || "HIRA 응답을 해석하지 못했습니다.");
+  const resultCode = xmlValue(xml, "resultCode");
+  if (resultCode && !["00", "0"].includes(resultCode)) throw new Error("HIRA 조회가 승인되지 않았거나 일시적으로 제한되었습니다.");
+  const rawTotal = xmlValue(xml, "totalCount");
+  const total = rawTotal && /^\d+$/.test(rawTotal) ? Number(rawTotal) : NaN;
+  if (!Number.isSafeInteger(total) || total < 0) throw new Error("HIRA 응답에 유효한 기관 수가 없습니다. 잠시 후 다시 조회해주세요.");
   return total;
 }
 
@@ -74,13 +77,13 @@ async function fetchHiraMedical(context: ProviderContext): Promise<HiraMedicalDa
     const specialtyCode = SPECIALTY_CODES[context.specialty];
     const [medicalCount, matchingSpecialtyCount, pharmacyCount] = await Promise.all([
       fetchHiraCount(hospitalUrl, key, context),
-      specialtyCode ? fetchHiraCount(hospitalUrl, key, context, specialtyCode) : Promise.resolve(undefined),
+      specialtyCode ? fetchHiraCount(hospitalUrl, key, context, specialtyCode).catch(() => undefined) : Promise.resolve(undefined),
       fetchHiraCount(pharmacyUrl, key, context).catch(() => undefined)
     ]);
     return {
       status: "available", source: "건강보험심사평가원 병원정보서비스", referenceDate: todayInSeoul(),
       radiusMeters: context.radiusMeters, medicalCount, matchingSpecialtyCount, pharmacyCount,
-      message: `반경 ${context.radiusMeters.toLocaleString()}m의 HIRA 신고 기준 공식 수치입니다.`
+      message: `반경 ${context.radiusMeters.toLocaleString()}m의 HIRA 신고 기준 의료기관 수입니다.${pharmacyCount === undefined ? " 약국은 별도 API 승인 확인 전까지 기존 지도 검색 수를 표시합니다." : " 약국 수도 HIRA 신고 기준입니다."}${matchingSpecialtyCount === undefined ? " 진료과별 수는 기존 지도 검색 기준입니다." : ""}`
     };
   } catch (error) {
     return { status: "error", source: "건강보험심사평가원 병원정보서비스", referenceDate: todayInSeoul(), radiusMeters: context.radiusMeters, message: error instanceof Error ? error.message : "HIRA 데이터를 불러오지 못했습니다." };
