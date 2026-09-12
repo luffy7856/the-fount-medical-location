@@ -11,39 +11,11 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { specialties, type Specialty } from "@/data/specialties";
 import type { LivingPopulation, LocationAnalysis, LiveMetric, LivePlace } from "@/data/location-types";
 import { analysisStorageId, loadSavedAnalyses, mergeSavedAnalysis, storeSavedAnalyses } from "@/data/saved-analyses";
+import { calculateOpeningPlan, DEFAULT_OPENING_INPUTS, type OpeningInputs } from "@/data/opening-plan";
 
 const LiveMap = dynamic(() => import("./live-map"), { ssr: false, loading: () => <div className="map-loading"><Activity className="spin" /> 지도를 불러오는 중</div> });
 
 type PanelTab = "overview" | "competitors" | "forecast" | "profitability" | "compare";
-
-type OpeningInputs = {
-  floor: number;
-  areaPyeong: number;
-  depositManwon: number;
-  monthlyRentManwon: number;
-  openingBudgetManwon: number;
-  monthlyPayrollManwon: number;
-  monthlyMarketingManwon: number;
-};
-
-const SPECIALTY_FINANCE: Record<Specialty, { revenuePerPyeong: number; benchmarkCapitalPerPyeong: number; variableCostRate: number; otherFixedPerPyeong: number }> = {
-  "내과": { revenuePerPyeong: 215, benchmarkCapitalPerPyeong: 780, variableCostRate: .16, otherFixedPerPyeong: 24 },
-  "정형외과": { revenuePerPyeong: 290, benchmarkCapitalPerPyeong: 1250, variableCostRate: .2, otherFixedPerPyeong: 31 },
-  "피부과": { revenuePerPyeong: 390, benchmarkCapitalPerPyeong: 1650, variableCostRate: .27, otherFixedPerPyeong: 38 },
-  "성형외과": { revenuePerPyeong: 420, benchmarkCapitalPerPyeong: 1900, variableCostRate: .3, otherFixedPerPyeong: 42 },
-  "소아청소년과": { revenuePerPyeong: 190, benchmarkCapitalPerPyeong: 720, variableCostRate: .15, otherFixedPerPyeong: 23 },
-  "치과": { revenuePerPyeong: 330, benchmarkCapitalPerPyeong: 1800, variableCostRate: .24, otherFixedPerPyeong: 36 },
-  "한의원": { revenuePerPyeong: 205, benchmarkCapitalPerPyeong: 680, variableCostRate: .18, otherFixedPerPyeong: 22 },
-  "산부인과": { revenuePerPyeong: 250, benchmarkCapitalPerPyeong: 1300, variableCostRate: .2, otherFixedPerPyeong: 32 },
-  "안과": { revenuePerPyeong: 315, benchmarkCapitalPerPyeong: 1750, variableCostRate: .23, otherFixedPerPyeong: 36 },
-  "이비인후과": { revenuePerPyeong: 225, benchmarkCapitalPerPyeong: 860, variableCostRate: .16, otherFixedPerPyeong: 25 },
-  "기타": { revenuePerPyeong: 230, benchmarkCapitalPerPyeong: 1000, variableCostRate: .2, otherFixedPerPyeong: 28 }
-};
-
-const DEFAULT_OPENING_INPUTS: OpeningInputs = {
-  floor: 3, areaPyeong: 50, depositManwon: 10000, monthlyRentManwon: 700,
-  openingBudgetManwon: 50000, monthlyPayrollManwon: 2500, monthlyMarketingManwon: 500
-};
 
 const EMPTY_ANALYSIS: LocationAnalysis = {
   mode: "live", provider: "openstreetmap", analyzedAt: new Date(0).toISOString(),
@@ -171,30 +143,6 @@ function withLivingPopulation(analysis: LocationAnalysis, livingPopulation: Livi
     return { ...analysis, livingPopulation, metrics, observedScore, grade: observedScore >= 85 ? "A" : observedScore >= 75 ? "B+" : observedScore >= 65 ? "B" : "C" };
   }
   return { ...analysis, livingPopulation };
-}
-
-function calculateOpeningPlan(analysis: LocationAnalysis, inputs: OpeningInputs) {
-  const benchmark = SPECIALTY_FINANCE[analysis.specialty];
-  const floorFactor = inputs.floor <= 0 ? .82 : inputs.floor === 1 ? 1.06 : inputs.floor === 2 ? 1 : inputs.floor === 3 ? .96 : .9;
-  const locationFactor = .78 + Math.min(Math.max(analysis.observedScore, 45), 95) / 220;
-  const expectedRevenue = Math.round(inputs.areaPyeong * benchmark.revenuePerPyeong * floorFactor * locationFactor);
-  const variableCost = expectedRevenue * benchmark.variableCostRate;
-  const otherFixed = inputs.areaPyeong * benchmark.otherFixedPerPyeong;
-  const monthlyOperatingProfit = Math.round(expectedRevenue - variableCost - inputs.monthlyRentManwon - inputs.monthlyPayrollManwon - inputs.monthlyMarketingManwon - otherFixed);
-  const totalCashInvestment = inputs.depositManwon + inputs.openingBudgetManwon;
-  const benchmarkCapital = Math.round(inputs.areaPyeong * benchmark.benchmarkCapitalPerPyeong);
-  const paybackMonths = monthlyOperatingProfit > 0 ? Math.ceil(totalCashInvestment / monthlyOperatingProfit) : null;
-  return {
-    expectedRevenue,
-    revenueLow: Math.round(expectedRevenue * .85),
-    revenueHigh: Math.round(expectedRevenue * 1.15),
-    monthlyOperatingProfit,
-    totalCashInvestment,
-    benchmarkCapital,
-    paybackMonths,
-    rentRatio: expectedRevenue > 0 ? Math.round(inputs.monthlyRentManwon / expectedRevenue * 1000) / 10 : 0,
-    capitalDifference: benchmarkCapital > 0 ? Math.round((totalCashInvestment / benchmarkCapital - 1) * 100) : 0
-  };
 }
 
 function FinancialPlanningPanel({ analysis, inputs, onChange, compact = false }: { analysis: LocationAnalysis; inputs: OpeningInputs; onChange: (value: OpeningInputs) => void; compact?: boolean }) {
@@ -355,6 +303,7 @@ export default function LocationLab() {
   const [populationHour, setPopulationHour] = useState(12);
   const [populationLoading, setPopulationLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [reportDownloading, setReportDownloading] = useState(false);
   const specialtySelectRef = useRef<HTMLSelectElement>(null);
   const radiusSelectRef = useRef<HTMLSelectElement>(null);
   const openPicker = (ref: { current: HTMLSelectElement | null }) => {
@@ -401,6 +350,36 @@ export default function LocationLab() {
     setTab("overview");
     requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
   };
+  const downloadReport = async () => {
+    if (!analysis.analyzedAt || analysis.analyzedAt === new Date(0).toISOString()) {
+      setError("주소 분석이 완료된 후 PDF 보고서를 내려받을 수 있습니다.");
+      return;
+    }
+    setReportDownloading(true); setError("");
+    try {
+      const response = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ analysis, openingInputs })
+      });
+      if (!response.ok) {
+        const message = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(message?.error || "PDF 보고서를 생성하지 못했습니다.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+      anchor.href = url;
+      anchor.download = `the-fount-location-report-${stamp}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "PDF 보고서를 생성하지 못했습니다.");
+    } finally { setReportDownloading(false); }
+  };
   const openSavedAnalysis = (item: LocationAnalysis) => {
     setAnalysis(item); setSpecialty(item.specialty); setRadiusMeters(item.radiusMeters); setAddressInput(item.location.displayName.split(",")[0]); setSelectedPlace(null); setTab("overview");
   };
@@ -440,7 +419,7 @@ export default function LocationLab() {
   }, [runAnalysis]);
 
   return <main id="top" className="app-shell">
-    <header className="app-header"><Brand /><div className="header-status"><span><i /> LIVE BETA</span><b>실제 공개 데이터 기반</b></div><nav><button onClick={() => setTab("compare")}>후보지</button><button onClick={() => setTab("overview")}>분석 리포트</button><button onClick={printReport}><Download /> PDF·인쇄</button><button onClick={() => setTab("profitability")}>개원 수익성</button><button className="account">TF</button></nav><button className="mobile-menu" onClick={() => setMobileFilter(!mobileFilter)}>{mobileFilter ? <X /> : <Menu />}</button></header>
+    <header className="app-header"><Brand /><div className="header-status"><span><i /> LIVE BETA</span><b>실제 공개 데이터 기반</b></div><nav><button onClick={() => setTab("compare")}>후보지</button><button onClick={() => setTab("overview")}>분석 리포트</button><button disabled={reportDownloading} onClick={() => void downloadReport()}>{reportDownloading ? <Activity className="spin" /> : <Download />} PDF 다운로드</button><button className="print-action" onClick={printReport} title="현재 화면 인쇄"><Printer /></button><button onClick={() => setTab("profitability")}>개원 수익성</button><button className="account">TF</button></nav><button className="mobile-menu" onClick={() => setMobileFilter(!mobileFilter)}>{mobileFilter ? <X /> : <Menu />}</button></header>
     <form className={`filter-bar live-filter ${mobileFilter ? "mobile-open" : ""}`} onSubmit={submit}>
       <label className="search-field"><Search /><input value={addressInput} onChange={event => setAddressInput(event.target.value)} placeholder="도로명 주소, 건물명, 역 이름 검색" /><button type="button" title="현재 위치" onClick={useCurrentLocation}><LocateFixed /></button></label>
       <div className="filter-picker"><span>진료과</span><select ref={specialtySelectRef} aria-label="진료과 선택" value={specialty} onChange={event => setSpecialty(event.target.value as Specialty)}>{specialties.map(item => <option key={item}>{item}</option>)}</select><button type="button" aria-label="진료과 메뉴 열기" onClick={() => openPicker(specialtySelectRef)}><ChevronDown /></button></div>
@@ -473,7 +452,8 @@ export default function LocationLab() {
           <button type="button" className={tab === "forecast" ? "active" : ""} aria-pressed={tab === "forecast"} onClick={() => setTab("forecast")}><TrendingUp /><span>3년전망</span></button>
           <button type="button" className={tab === "profitability" ? "active" : ""} aria-pressed={tab === "profitability"} onClick={() => setTab("profitability")}><Calculator /><span>수익성</span></button>
           <button type="button" className={tab === "compare" ? "active" : ""} aria-pressed={tab === "compare"} onClick={() => setTab("compare")}><GitCompareArrows /><span>후보지 비교</span></button>
-          <button type="button" className="mobile-print" onClick={printReport} title="PDF로 저장하거나 인쇄"><Printer /></button>
+          <button type="button" className="mobile-print mobile-download" disabled={reportDownloading} onClick={() => void downloadReport()} title="PDF 보고서 다운로드">{reportDownloading ? <Activity className="spin" /> : <Download />}</button>
+          <button type="button" className="mobile-print" onClick={printReport} title="현재 화면 인쇄"><Printer /></button>
         </nav>
         <div key={tab} className="panel-view">
           {tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} openingInputs={openingInputs} onOpeningInputs={setOpeningInputs} />}
