@@ -96,7 +96,7 @@ export async function POST(request: Request) {
   const evidence = buildInsightEvidence(analysis);
   const allowedIds = new Set(evidence.map(item => item.id));
   const missing = analysis.dataConnections?.filter(connection => connection.status !== "available").map(connection => ({ label: connection.label, status: connection.status, message: connection.message })) || [];
-  const model = process.env.AI_INSIGHT_MODEL || "openai/gpt-6-astra";
+  const model = process.env.AI_INSIGHT_MODEL || "openai/gpt-5.4-mini";
 
   try {
     const result = await generateText({
