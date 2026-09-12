@@ -388,7 +388,7 @@ function drawFinancialPage(document: PDFDocument, fonts: Fonts, analysis: Locati
   c.sectionLabel("Benchmark review", c.y);
   c.y -= 30;
   const benchmarkRows = [
-    ["입력 총투자액", `${result.totalCashInvestment.toLocaleString()}만원`],
+    ["시설·장비 개원자금 (보증금 제외)", `${inputs.openingBudgetManwon.toLocaleString()}만원`],
     [`${analysis.specialty} 면적 기준 참고 개원자금`, `${result.benchmarkCapital.toLocaleString()}만원`],
     ["참고값 대비", `${result.capitalDifference > 0 ? "+" : ""}${result.capitalDifference}%`],
     ["월세 / 예상매출", `${result.rentRatio}%`]

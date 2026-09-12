@@ -56,6 +56,7 @@ export function calculateOpeningPlan(analysis: Pick<LocationAnalysis, "specialty
     benchmarkCapital,
     paybackMonths,
     rentRatio: expectedRevenue > 0 ? Math.round(inputs.monthlyRentManwon / expectedRevenue * 1000) / 10 : 0,
-    capitalDifference: benchmarkCapital > 0 ? Math.round((totalCashInvestment / benchmarkCapital - 1) * 100) : 0
+    // The area benchmark covers facilities/equipment, not the refundable deposit.
+    capitalDifference: benchmarkCapital > 0 ? Math.round((inputs.openingBudgetManwon / benchmarkCapital - 1) * 100) : 0
   };
 }
