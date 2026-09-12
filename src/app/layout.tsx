@@ -7,8 +7,10 @@ const description =
   "병원 개원 예정지를 입력하면 실제 공개 지도 데이터를 조회해 주변 의료기관, 약국, 대중교통, 주차시설과 진료과별 경쟁환경을 확인할 수 있습니다.";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://the-fount-medical-location.vercel.app"),
   title,
   description,
+  alternates: { canonical: "/" },
   keywords: [
     "병원 입지분석", "병원 상권분석", "병원 개원", "개원 입지", "병원 개원 컨설팅",
     "개원 예정지 분석", "병원 유동인구", "병원 경쟁분석", "병원 개원 타당성",
@@ -19,9 +21,23 @@ export const metadata: Metadata = {
     description,
     type: "website",
     locale: "ko_KR",
-    siteName: "THE FOUNT Clinic Location Lab"
+    siteName: "THE FOUNT Clinic Location Lab",
+    url: "/",
+    images: [
+      {
+        url: "/the-fount-medical-location-og.png",
+        width: 1740,
+        height: 907,
+        alt: "도시 지도와 의료 데이터로 병원 개원 후보지를 분석하는 THE FOUNT Clinic Location Lab"
+      }
+    ]
   },
-  twitter: { card: "summary", title, description },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+    images: ["/the-fount-medical-location-og.png"]
+  },
   robots: { index: true, follow: true }
 };
 

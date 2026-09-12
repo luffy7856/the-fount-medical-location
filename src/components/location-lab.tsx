@@ -321,7 +321,7 @@ export default function LocationLab() {
   const [savedReady, setSavedReady] = useState(false);
   const [tab, setTab] = useState<PanelTab>("overview");
   const [selectedPlace, setSelectedPlace] = useState<LivePlace | null>(null);
-  const [layerOpen, setLayerOpen] = useState(true);
+  const [layerOpen, setLayerOpen] = useState(false);
   const [mobileFilter, setMobileFilter] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
