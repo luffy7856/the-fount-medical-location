@@ -122,7 +122,9 @@ function DataConnections({ analysis }: { analysis: LocationAnalysis }) {
   return <section className="panel-section connection-section"><div className="panel-title"><div><span>PROVIDER ADAPTERS</span><h3>정밀 데이터 연결 상태</h3></div></div><div className="connection-grid">
     {analysis.dataConnections.map(item => <article key={item.id} className={item.status}>
       <div><b>{item.label}</b><em>{statusLabel[item.status]}</em></div><span>{item.source}</span><p>{item.message}</p>
-      {item.status !== "available" && <small>필요 설정: {item.requiredEnvironmentVariables.join(" · ")}</small>}
+      {item.status !== "available" && (item.requiredEnvironmentVariables.length
+        ? <small>필요 설정: {item.requiredEnvironmentVariables.join(" · ")}</small>
+        : <small>환경설정 완료 · 공급자 응답 점검 필요</small>)}
       <a href={item.setupUrl} target="_blank" rel="noreferrer">공식 신청·안내 <ExternalLink /></a>
     </article>)}
   </div><p className="connection-security">승인키는 서버 환경변수에서만 읽으며 브라우저 응답·화면·로그에는 키 값을 반환하지 않습니다.</p></section>;
