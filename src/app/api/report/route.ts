@@ -97,7 +97,8 @@ class ReportCanvas {
     let line = "";
     for (const char of normalized) {
       const candidate = line + char;
-      if (line && font.widthOfTextAtSize(candidate, size) > maxWidth) {
+      // Reserve room for Korean font shaping so rendered lines stay inside the column.
+      if (line && font.widthOfTextAtSize(candidate, size) > maxWidth * .78) {
         lines.push(line.trimEnd());
         line = char.trimStart();
       } else line = candidate;
@@ -305,6 +306,44 @@ function drawEvidencePage(document: PDFDocument, fonts: Fonts, analysis: Locatio
   c.footer(2);
 }
 
+function drawRegionalPage(document: PDFDocument, fonts: Fonts, analysis: LocationAnalysis) {
+  const c = new ReportCanvas(document.addPage(PageSizes.A4), fonts);
+  addHeader(c, "이 지역의 환자층과 현장 확인", analysis.specialty);
+  const profile = analysis.regionalProfile;
+  const width = PAGE_WIDTH - MARGIN * 2;
+  const total = analysis.demographics?.residentPopulation || 0;
+  const share = (value?: number) => value === undefined || total <= 0 ? "확인된 자료 없음" : `${(value / total * 100).toFixed(1)}% · ${value.toLocaleString()}명`;
+  c.text("어떤 환자들이 살고 있나요?", MARGIN, c.y, 15, { bold: true, color: NAVY });
+  c.y -= 27;
+  const rows = [
+    ["남성 / 여성", `${share(profile?.malePopulation)} / ${share(profile?.femalePopulation)}`],
+    ["15세 미만", share(profile?.childPopulation)],
+    ["20~39세", share(profile?.youngAdultPopulation)],
+    ["40~59세", share(profile?.middleAgePopulation)],
+    ["65세 이상", share(profile?.seniorPopulation)],
+    ["주변 교육·보육시설", `초등학교 ${profile?.elementarySchools === undefined ? "확인 필요" : `${profile.elementarySchools}곳`} · 어린이집·유치원 ${profile?.childcareFacilities === undefined ? "확인 필요" : `${profile.childcareFacilities}곳`}`]
+  ];
+  rows.forEach(([label, value], index) => {
+    if (index % 2 === 0) c.page.drawRectangle({ x: MARGIN, y: c.y - 9, width, height: 27, color: PALE });
+    c.text(label, MARGIN + 10, c.y, 10, { bold: true });
+    c.text(value, MARGIN + 140, c.y, 10);
+    c.y -= 31;
+  });
+  c.y = c.paragraph(`인구: ${profile?.areaName || "해당 행정동"} 전체, ${profile?.year || "기준연도 확인 필요"}년 SGIS. 시설: 선택 반경 ${analysis.radiusMeters.toLocaleString()}m, Kakao Local 검색. 연령은 주요 구간만 표시하므로 합계가 100%는 아닙니다.`, MARGIN, c.y, width, 9, 14, { color: MUTED }) - 24;
+  c.text(profile?.character || "지역 특성 확인 필요", MARGIN, c.y, 14, { bold: true, color: TEAL });
+  c.y -= 23;
+  c.y = c.paragraph(profile?.characterReason || "아파트·업무시설과 후보 건물 사이의 실제 이동 동선을 살펴보세요.", MARGIN, c.y, width, 11, 17) - 12;
+  for (const item of profile?.specialtyFit || []) c.y = c.paragraph(item, MARGIN, c.y, width, 10, 16) - 8;
+  c.y = c.paragraph("학교 수나 성별 비율만으로 진료 수요·매출을 보장하지 않습니다. 신도시·구도심 여부도 인구 구성만으로 확정하지 않고, 실제 입주와 개발 진행 상황을 함께 확인해야 합니다.", MARGIN, c.y, width, 9, 14, { color: MUTED }) - 24;
+  c.text("계약 전에 원장님이 확인할 것", MARGIN, c.y, 14, { bold: true, color: NAVY });
+  c.y -= 25;
+  (profile?.doctorChecks || ["핵심 환자층의 생활 동선, 경쟁병원의 진료내용, 주차와 임대조건을 직접 확인하세요."]).forEach((item, index) => {
+    c.text(`${index + 1}.`, MARGIN, c.y, 10, { bold: true, color: GOLD });
+    c.y = c.paragraph(item, MARGIN + 20, c.y, width - 20, 10, 16) - 11;
+  });
+  c.footer(3);
+}
+
 function drawFinancialPage(document: PDFDocument, fonts: Fonts, analysis: LocationAnalysis, inputs: OpeningInputs) {
   const page = document.addPage(PageSizes.A4);
   const c = new ReportCanvas(page, fonts);
@@ -380,7 +419,7 @@ function drawFinancialPage(document: PDFDocument, fonts: Fonts, analysis: Locati
   c.text("입지·자금·인건비·장비·세금·손익분기점을 함께 검토합니다.", MARGIN + 18, 108, 8, { color: rgb(.75, .82, .89) });
   c.text("www.thefount.co.kr  |  070-8064-2325", MARGIN + 18, 92, 8, { bold: true, color: rgb(.52, .9, .82) });
   c.text("본 수치는 공개데이터와 입력값을 이용한 사전 시뮬레이션이며 보장 매출이 아닙니다.", MARGIN, 58, 7.2, { color: MUTED });
-  c.footer(3);
+  c.footer(4);
 }
 
 async function createReport(payload: ReportPayload) {
@@ -396,6 +435,7 @@ async function createReport(payload: ReportPayload) {
   document.setCreationDate(new Date());
   drawSummaryPage(document, fonts, payload.analysis);
   drawEvidencePage(document, fonts, payload.analysis);
+  drawRegionalPage(document, fonts, payload.analysis);
   drawFinancialPage(document, fonts, payload.analysis, payload.openingInputs);
   return document.save({ useObjectStreams: true });
 }
