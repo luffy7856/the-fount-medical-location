@@ -1,7 +1,7 @@
 const fs=require('node:fs'),assert=require('node:assert/strict'),ts=require('typescript'),path=require('node:path');
 const root=path.join(__dirname,'..');
 require.extensions['.ts']=(module,filename)=>module._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText,filename);
-const {buildMedicalReport,reportCompetitors,indexedForecast,REPORT_VERSION}=require('../src/lib/medical-report.ts');
+const {buildMedicalReport,reportCompetitors,briefCompetitors,indexedForecast,REPORT_VERSION}=require('../src/lib/medical-report.ts');
 const {DEFAULT_OPENING_INPUTS:d}=require('../src/data/opening-plan.ts');
 const {PDFDocument,PDFName,PDFPage}=require('pdf-lib');
 const source=fs.readFileSync(path.join(root,'src/components/location-lab.tsx'),'utf8');
@@ -35,13 +35,15 @@ PDFPage.prototype.drawText=function(text,opts){const width=opts.font.widthOfText
   const bytes=await buildMedicalReport(sample,d);
   fs.writeFileSync(path.join(output,'THE_FOUNT_report_design_sample.pdf'),bytes);
   const pdf=await PDFDocument.load(bytes);
-  assert(pdf.getPageCount()>=9);assert(pdf.getPageCount()<=18);
+  assert.equal(pdf.getPageCount(),11);
   assert(pdf.getKeywords().includes(REPORT_VERSION));
   assert(pdf.getPages().some(p=>(p.node.Annots()?.size()||0)>0));
   const stressed=JSON.parse(JSON.stringify(sample));
   stressed.location.displayName='긴 주소 확인 '.repeat(30);
   stressed.risks=Array.from({length:12},()=>('줄바꿈과 다음 페이지 연결을 검증하는 긴 문장입니다. ').repeat(8));
   stressed.places=Array.from({length:50},(_,k)=>({...sample.places[k%6],id:'long-'+k,name:('긴이름 피부과 ').repeat(12),address:('아주 긴 도로명주소 ').repeat(15)}));
+  assert.equal(briefCompetitors(stressed).length,10);
+  assert(briefCompetitors(stressed).every((p,k,list)=>k===0||p.distanceMeters>=list[k-1].distanceMeters));
   const stress=await buildMedicalReport(stressed,{...d,loanAmount:60000});
   const temp=path.join(root,'tmp/pdfs');fs.mkdirSync(temp,{recursive:true});
   fs.writeFileSync(path.join(temp,'report-stress.pdf'),stress);
