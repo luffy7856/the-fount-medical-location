@@ -435,7 +435,7 @@ export default function LocationLab() {
       });
       if (!response.ok) {
         const message = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(message?.error || "PDF 보고서를 생성하지 못했습니다.");
+        throw new Error(message?.error || (response.status === 413 ? "보고서 분량이 큽니다. 분석 반경을 줄인 뒤 다시 시도해주세요." : response.status === 504 ? "보고서 생성 시간이 초과되었습니다. 잠시 후 다시 시도해주세요." : `보고서를 생성하지 못했습니다. 다시 시도해주세요. (오류 ${response.status})`));
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -498,7 +498,7 @@ export default function LocationLab() {
       <label className="population-date"><span>생활인구 기준일</span><input type="date" value={populationDate} onChange={event => setPopulationDate(event.target.value)} /></label>
       <button className="analyze-button" type="submit">{loading ? <Activity className="spin" /> : <BarChart3 />} 실제 데이터 분석</button>
     </form>
-    {error && <div className="error-banner"><AlertTriangle />{error}<button onClick={() => setError("")}><X /></button></div>}
+    {error && <div className="error-banner" role="alert" aria-live="assertive"><AlertTriangle /><span>{error}</span><button aria-label="오류 안내 닫기" onClick={() => setError("")}><X /></button></div>}
     <div className="workspace">
       <section className="map-area">
         <LiveMap analysis={analysis} activeKinds={activeKinds} populationActive={populationActive} selected={selectedPlace} onPlace={place => { setSelectedPlace(place); if (place.kind === "hospital") setTab("competitors"); }} onSelectCoordinate={(latitude, longitude) => void runAnalysis({ latitude, longitude })} />

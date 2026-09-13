@@ -6,7 +6,7 @@ import type { LocationAnalysis, LivePlace, GrowthForecastPoint } from '../data/l
 import { matchesSpecialty } from '../data/specialties';
 import { calculateOpeningPlan, calculateFiveYearPlan, type OpeningInputs } from '../data/opening-plan';
 
-export const REPORT_VERSION = '2026.09.13-r2';
+export const REPORT_VERSION = '2026.09.13-r3';
 const W=PageSizes.A4[0], H=PageSizes.A4[1], M=42, WIDTH=W-M*2, BOTTOM=58;
 const NAVY=rgb(.06,.14,.24), TEAL=rgb(.02,.43,.39), GOLD=rgb(.52,.39,.19);
 const INK=rgb(.14,.21,.29), MUTED=rgb(.34,.40,.47), LINE=rgb(.84,.88,.92);
@@ -409,7 +409,7 @@ function sources(r:Report,a:LocationAnalysis){
 export async function buildMedicalReport(a:LocationAnalysis,i:OpeningInputs){
   const doc=await PDFDocument.create();doc.registerFontkit(fontkit);
   const [regularBytes,boldBytes]=await Promise.all([
-    readFile(join(process.cwd(),'public/fonts/NotoSansKR-400.ttf')),
+    readFile(join(process.cwd(),'public/fonts/NotoSansKR-report-400.ttf')),
     readFile(join(process.cwd(),'public/fonts/NotoSansKR-700.ttf'))
   ]);
   const [regular,bold]=await Promise.all([doc.embedFont(regularBytes,{subset:false}),doc.embedFont(boldBytes,{subset:false})]);

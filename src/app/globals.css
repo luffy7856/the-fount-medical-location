@@ -165,6 +165,9 @@
 
 /* Trust-first result hierarchy */
 .score-row{grid-template-columns:112px 1fr 42px}.score-row b{white-space:nowrap}
+/* Above Leaflet panes and mobile analysis sheets; never clipped by the map. */
+.error-banner{z-index:10000;top:calc(env(safe-area-inset-top,0px) + 76px);width:min(600px,calc(100vw - 24px));max-width:none;align-items:flex-start;padding:16px;font-size:15px;line-height:1.6;box-sizing:border-box;max-height:calc(100dvh - 100px);overflow-y:auto;box-shadow:0 12px 36px #172c4033}
+.error-banner>span{flex:1;min-width:0;overflow-wrap:anywhere}.error-banner>svg{flex:none;margin-top:4px}.error-banner button{flex:none;min-width:36px;min-height:36px;display:grid;place-items:center}
 .evidence-details{margin-top:10px;border:1px solid var(--line);border-radius:9px;background:#fff;overflow:hidden}
 .evidence-details summary{list-style:none;cursor:pointer;padding:12px 14px;color:#38545f;font-size:12px;font-weight:850;display:flex;align-items:center;justify-content:space-between}
 .evidence-details summary::-webkit-details-marker{display:none}.evidence-details summary:after{content:"+";font-size:18px;color:var(--teal)}.evidence-details[open] summary:after{content:"−"}

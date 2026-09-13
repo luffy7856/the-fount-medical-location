@@ -4,6 +4,7 @@ import { specialties } from '@/data/specialties';
 import { buildMedicalReport, REPORT_VERSION } from '@/lib/medical-report';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
+export const maxDuration=60;
 type ReportPayload={analysis:LocationAnalysis;openingInputs:OpeningInputs};
 function finite(value: unknown, min = -Infinity, max = Infinity): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
@@ -46,7 +47,7 @@ function validDetails(a:LocationAnalysis) {
   const text=(v:unknown,max=2000):v is string=>typeof v==='string'&&v.length<=max;
   const strings=(v:unknown,max=20)=>Array.isArray(v)&&v.length<=max&&v.every(s=>text(s));
   if(!text(a.insight)||!strings(a.strengths,12)||!strings(a.risks,12)||!strings(a.limitations))return false;
-  if(!Array.isArray(a.places)||a.places.length>250||!a.places.every(p=>
+  if(!Array.isArray(a.places)||a.places.length>5000||!a.places.every(p=>
     text(p.id,200)&&text(p.name,200)&&['hospital','pharmacy','transit','parking'].includes(p.kind)&&
     finite(p.latitude,-90,90)&&finite(p.longitude,-180,180)&&finite(p.distanceMeters,0,1e7)&&
     (p.specialty===undefined||text(p.specialty,500))&&(p.address===undefined||text(p.address,500))&&(p.url===undefined||text(p.url,2000))
