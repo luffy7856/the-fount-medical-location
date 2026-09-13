@@ -15,10 +15,10 @@ const POPULATION_COLORS = [
 
 const ANALYSIS_LOCATION_ICON = divIcon({
   className: "analysis-location-marker",
-  html: '<div class="analysis-flag"><i class="analysis-flag-pole"></i><span class="analysis-flag-sheet"><small>THE FOUNT</small><b>분석 지점</b></span><i class="analysis-flag-base"></i></div>',
-  iconSize: [112, 62],
-  iconAnchor: [17, 56],
-  popupAnchor: [36, -53]
+  html: '<div class="analysis-pin"><svg width="44" height="52" viewBox="0 0 44 52" aria-hidden="true"><defs><linearGradient id="analysisPinBody" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#426077"/><stop offset=".5" stop-color="#19354b"/><stop offset="1" stop-color="#091e30"/></linearGradient><linearGradient id="analysisPinGold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eedfc1"/><stop offset="1" stop-color="#b39a6b"/></linearGradient></defs><circle cx="22" cy="44" r="5" fill="#18364b" stroke="white" stroke-width="2"/><path d="M22 44C18 37 7 26 7 18a15 15 0 0 1 30 0c0 8-11 19-15 26Z" fill="url(#analysisPinBody)" stroke="white" stroke-width="1.6"/><path d="M12 18a10 10 0 0 1 10-10" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="1.5" stroke-linecap="round"/><circle cx="22" cy="18" r="6" fill="url(#analysisPinGold)"/><circle cx="22" cy="18" r="2.5" fill="#19354b"/></svg></div>',
+  iconSize: [44, 52],
+  iconAnchor: [22, 44],
+  popupAnchor: [0, -40]
 });
 
 function distanceMeters(latitude: number, longitude: number, targetLatitude: number, targetLongitude: number) {
@@ -143,8 +143,8 @@ export default function LiveMap({ analysis, activeKinds, populationActive, selec
       pathOptions={{ color: cell.category.color, fillColor: cell.category.color, fillOpacity: .27, weight: .7 }}
     ><Popup><strong>{cell.actual ? "250m 격자 실제 생활인구" : "생활인구 공간분포 추정"}</strong><br />{cell.actual ? <><b>{cell.population?.toLocaleString()}명</b> · {cell.category.label}</> : <>밀도지수 <b>{cell.score}/100</b> · {cell.category.label}</>}<br />{livingPopulation.referenceDate} {String(livingPopulation.hour).padStart(2, "0")}시<br />{cell.actual ? `격자 ${cell.row}` : `행정동 실제 생활인구 ${livingPopulation.total?.toLocaleString()}명`}<br /><small>{cell.actual ? "서울특별시 250m 격자 원자료" : "주변 지하철·약국·의료기관 접근성으로 공간 배분한 추정지수"}</small><AnalyzePopupLocation latitude={cell.centerLatitude} longitude={cell.centerLongitude} onSelect={onSelectCoordinate} label="이 격자 중심으로 분석하기" /></Popup></Rectangle>)}
     <Circle center={[latitude, longitude]} radius={analysis.radiusMeters} pathOptions={{ color: "#0f937d", fillColor: "#38b2ac", fillOpacity: .08, weight: 2, dashArray: "6 7" }} />
-    <Marker position={[latitude, longitude]} icon={ANALYSIS_LOCATION_ICON} zIndexOffset={1000} bubblingMouseEvents={false}>
-      <Popup><b>분석 중심지</b><br />{analysis.location.displayName}</Popup>
+    <Marker position={[latitude, longitude]} icon={ANALYSIS_LOCATION_ICON} alt="분석 지점" zIndexOffset={1000} bubblingMouseEvents={false}>
+      <Popup><b>분석 지점</b><br />{analysis.location.displayName}</Popup>
     </Marker>
     {analysis.places.filter(place => activeKinds.has(place.kind)).map(place => <CircleMarker
       key={place.id}
