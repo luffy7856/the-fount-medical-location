@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { DataConnection, GrowthForecast, GrowthForecastPoint, LivingPopulation, LocationAnalysis, LivePlace, LivePlaceKind, RegionalProfile } from "@/data/location-types";
-import { specialties, type Specialty } from "@/data/specialties";
+import { specialties, matchesSpecialty, type Specialty } from "@/data/specialties";
 import { fetchSeoulLivingPopulation } from "@/providers/seoul-living-population";
 import { fetchExternalLocationData, type ExternalLocationData } from "@/providers/external-location-data";
 
@@ -10,19 +10,6 @@ export const maxDuration = 30;
 export const preferredRegion = "icn1";
 
 const COLORS = ["#169e91", "#f26b4a", "#8b66d2", "#3f8fe6", "#e5a33f", "#347bc6"];
-const SPECIALTY_TERMS: Record<Specialty, string[]> = {
-  "내과": ["내과", "internal medicine"],
-  "정형외과": ["정형", "orthopedic", "orthopaedic"],
-  "피부과": ["피부", "dermatology", "skin"],
-  "성형외과": ["성형", "plastic surgery"],
-  "소아청소년과": ["소아", "pediatric", "paediatric"],
-  "치과": ["치과", "dental", "dentist"],
-  "한의원": ["한의", "oriental medicine", "korean medicine"],
-  "산부인과": ["산부인과", "obstetric", "gynecology", "gynaecology"],
-  "안과": ["안과", "ophthalmology", "eye clinic"],
-  "이비인후과": ["이비인후", "otolaryngology", "ent clinic"],
-  "기타": []
-};
 
 function clamp(value: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(value)));
@@ -36,11 +23,6 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   return Math.round(r * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-function matchesSpecialty(name: string, category: string | undefined, specialty: Specialty) {
-  if (specialty === "기타") return true;
-  const target = `${name} ${category || ""}`.toLowerCase();
-  return SPECIALTY_TERMS[specialty].some(term => target.includes(term.toLowerCase()));
-}
 
 async function geocodeKakao(address: string, key: string) {
   const headers = { Authorization: `KakaoAK ${key}` };
@@ -382,12 +364,13 @@ async function fetchKakaoPlaces(key: string, latitude: number, longitude: number
     kakaoSearchComplete(key, "SC4", "parking", latitude, longitude, radius, "초등학교"),
     kakaoSearchComplete(key, "PS3", "parking", latitude, longitude, radius)
   ]);
-  const places = [...hospital.places, ...pharmacy.places, ...transit.places, ...parking.places];
+  const matchedHospitals = specialtyHospital.places.filter(place => matchesSpecialty(place.name, place.specialty, specialty));
+  const places = Array.from(new Map([...hospital.places, ...matchedHospitals, ...pharmacy.places, ...transit.places, ...parking.places].map(place => [place.id, place])).values()).sort((a, b) => a.distanceMeters - b.distanceMeters);
   return {
     places,
     totals: {
       medical: hospital.places.length,
-      matchingSpecialty: specialty === "기타" ? hospital.places.length : specialtyHospital.places.length,
+      matchingSpecialty: places.filter(place => place.kind === "hospital" && matchesSpecialty(place.name, place.specialty, specialty)).length,
       pharmacy: pharmacy.places.length,
       transit: transit.places.length,
       parking: parking.places.length

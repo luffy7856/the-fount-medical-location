@@ -11,7 +11,7 @@ export type OpeningInputs = {
   monthlyMarketingManwon: number;
 };
 
-const SPECIALTY_FINANCE: Record<Specialty, { revenuePerPyeong: number; benchmarkCapitalPerPyeong: number; variableCostRate: number; otherFixedPerPyeong: number }> = {
+const SPECIALTY_FINANCE: Partial<Record<Specialty, { revenuePerPyeong: number; benchmarkCapitalPerPyeong: number; variableCostRate: number; otherFixedPerPyeong: number }>> = {
   "내과": { revenuePerPyeong: 215, benchmarkCapitalPerPyeong: 780, variableCostRate: .16, otherFixedPerPyeong: 24 },
   "정형외과": { revenuePerPyeong: 290, benchmarkCapitalPerPyeong: 1250, variableCostRate: .2, otherFixedPerPyeong: 31 },
   "피부과": { revenuePerPyeong: 390, benchmarkCapitalPerPyeong: 1650, variableCostRate: .27, otherFixedPerPyeong: 38 },
@@ -36,7 +36,7 @@ export const DEFAULT_OPENING_INPUTS: OpeningInputs = {
 };
 
 export function calculateOpeningPlan(analysis: Pick<LocationAnalysis, "specialty" | "observedScore">, inputs: OpeningInputs) {
-  const benchmark = SPECIALTY_FINANCE[analysis.specialty];
+  const benchmark = SPECIALTY_FINANCE[analysis.specialty] || SPECIALTY_FINANCE["기타"]!;
   const floorFactor = inputs.floor <= 0 ? .82 : inputs.floor === 1 ? 1.06 : inputs.floor === 2 ? 1 : inputs.floor === 3 ? .96 : .9;
   const locationFactor = .78 + Math.min(Math.max(analysis.observedScore, 45), 95) / 220;
   const expectedRevenue = Math.round(inputs.areaPyeong * benchmark.revenuePerPyeong * floorFactor * locationFactor);

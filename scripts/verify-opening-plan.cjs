@@ -12,6 +12,7 @@ compiled._compile(ts.transpileModule(fs.readFileSync(source, 'utf8'), {
 const { calculateOpeningPlan: calculate, DEFAULT_OPENING_INPUTS: inputs } = compiled.exports;
 const analysis = { specialty: '소아청소년과', observedScore: 64 };
 const baseline = calculate(analysis, inputs);
+assert(Number.isFinite(calculate({ ...analysis, specialty: '비뇨기과' }, inputs).totalCashInvestment));
 const higherDeposit = calculate(analysis, { ...inputs, depositManwon: inputs.depositManwon + 10000 });
 assert.equal(higherDeposit.capitalDifference, baseline.capitalDifference);
 assert.equal(higherDeposit.totalCashInvestment, baseline.totalCashInvestment + 10000);

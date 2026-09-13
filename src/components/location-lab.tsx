@@ -8,7 +8,7 @@ import {
   ExternalLink, LocateFixed, MapPin, Menu, Pause, Play, Printer, Search, ShieldCheck, Sparkles, TimerReset, TrendingUp, Users, X
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { specialties, type Specialty } from "@/data/specialties";
+import { specialties, matchesSpecialty, type Specialty } from "@/data/specialties";
 import type { AiInsightItem, AiInterpretation, LivingPopulation, LocationAnalysis, LiveMetric, LivePlace } from "@/data/location-types";
 import { analysisStorageId, loadSavedAnalyses, mergeSavedAnalysis, storeSavedAnalyses } from "@/data/saved-analyses";
 import { calculateOpeningPlan, DEFAULT_OPENING_INPUTS, type OpeningInputs } from "@/data/opening-plan";
@@ -177,7 +177,7 @@ function FinancialPlanningPanel({ analysis, inputs, onChange, compact = false }:
   ];
   const compactMoney = (value: number) => value >= 10000 ? `${(value / 10000).toFixed(1)}억원` : `${value.toLocaleString()}만원`;
   return <section className={`panel-section feasibility-card ${compact ? "compact" : ""}`}>
-    <div className="feasibility-heading"><div><span>OPENING FEASIBILITY</span><h3>입지와 개원자금을 함께 비교합니다</h3><p>{analysis.specialty} 기준 참고모형에 층·면적·임대조건과 현재 입지 관측점수를 반영합니다.</p></div><Calculator /></div>
+    <div className="feasibility-heading"><div><span>OPENING FEASIBILITY</span><h3>입지와 개원자금을 함께 비교합니다</h3><p>{analysis.specialty === "비뇨기과" ? "비뇨기과 전용 수익모형은 아직 없어 일반 의원 참고모형을 사용합니다." : `${analysis.specialty} 기준 참고모형에 층·면적·임대조건과 현재 입지 관측점수를 반영합니다.`}</p></div><Calculator /></div>
     <div className="opening-input-grid">{fields.map(([key, label, unit]) => <label key={key}><span>{label}</span><div><input type="number" min={key === "floor" ? -2 : 0} value={inputs[key]} onChange={event => update(key, Number(event.target.value))} /><small>{unit}</small></div></label>)}</div>
     <div className="estimate-notice"><AlertTriangle /><p><b>입력값 기반 사전 시뮬레이션</b><span>아래 결과는 후보지 비교를 돕는 참고 범위이며 실제 매출·수익이나 대출심사 결과를 보장하지 않습니다.</span></p></div>
     <div className="feasibility-results">
@@ -276,9 +276,9 @@ function kakaoPlaceLink(place: LivePlace) {
 }
 
 function CompetitorPanel({ analysis, selected, onSelect }: { analysis: LocationAnalysis; selected: LivePlace | null; onSelect: (place: LivePlace) => void }) {
-  const hospitals = analysis.places.filter(place => place.kind === "hospital");
-  const current = selected?.kind === "hospital" ? selected : hospitals[0];
-  return <div className="panel-content"><div className="section-intro"><span>LIVE COMPETITOR MAP</span><h2>의료기관 {formatCount(analysis, "medical")}</h2><p>지도 표시 {hospitals.length}곳 · {analysis.specialty} 검색 {formatCount(analysis, "matchingSpecialty")} · 반경 {analysis.radiusMeters.toLocaleString()}m</p>{analysis.hiraMedical?.status === "available" && <small className="source-split">전체 의료기관 수: HIRA 신고 기준 · 진료과 검색 수·위치·장소명: Kakao 장소검색</small>}</div>
+  const hospitals = analysis.places.filter(place => place.kind === "hospital" && matchesSpecialty(place.name, place.specialty, analysis.specialty)).sort((a, b) => a.distanceMeters - b.distanceMeters);
+  const current = hospitals.find(place => place.id === selected?.id) || hospitals[0];
+  return <div className="panel-content"><div className="section-intro"><span>LIVE COMPETITOR MAP</span><h2>{analysis.specialty === "기타" ? "전체 의료기관" : `${analysis.specialty} 경쟁병원`} {hospitals.length}곳</h2><p>선택 진료과의 이름·분류가 확인된 기관만 표시 · 반경 {analysis.radiusMeters.toLocaleString()}m</p><small className="source-split">장소검색 기준이며 실제 진료과목·전문의 여부는 병원에 확인해주세요. 지도 전체 의료기관 수와는 다릅니다.</small>{analysis.specialty === "비뇨기과" && <small className="source-split">비뇨기과·비뇨의학과 명칭을 함께 확인합니다.</small>}</div>
     {current && <><div className="hospital-detail"><div className="hospital-avatar"><Hospital /></div><div><span>선택한 실제 의료기관</span><h3>{current.name}</h3><p>{current.specialty || "의료기관"} · {current.distanceMeters.toLocaleString()}m</p></div><b>LIVE</b></div><div className="detail-grid"><span>거리 <b>{current.distanceMeters.toLocaleString()}m</b></span><span>출처 <b>{analysis.provider === "kakao" ? "Kakao" : "OSM"}</b></span><span className="wide">주소 <b>{current.address || "공개 주소 없음"}</b></span></div></>}
     <div className="list-heading"><h3>거리순 의료기관</h3><span>클릭하면 카카오맵에서 열립니다</span></div><div className="hospital-list">{hospitals.length ? hospitals.slice(0, 40).map(place => <a key={place.id} href={kakaoPlaceLink(place)} target="_blank" rel="noopener noreferrer" aria-label={`${place.name} 카카오맵에서 보기 (새 탭)`} className={current?.id === place.id ? "active" : ""} onClick={() => onSelect(place)}><span className="dot age-fresh" /><div><b>{place.name}</b><small>{place.specialty || "의료기관"} · {place.distanceMeters.toLocaleString()}m</small></div><strong>{place.distanceMeters}m</strong><ExternalLink /></a>) : <div className="empty-state">반경 내 공개 등록 의료기관을 찾지 못했습니다.</div>}</div>
   </div>;
