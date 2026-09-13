@@ -6,7 +6,7 @@ import type { LocationAnalysis, LivePlace, GrowthForecastPoint } from '../data/l
 import { matchesSpecialty } from '../data/specialties';
 import { calculateOpeningPlan, calculateFiveYearPlan, type OpeningInputs } from '../data/opening-plan';
 
-export const REPORT_VERSION = '2026.09.13-r7';
+export const REPORT_VERSION = '2026.09.13-r8';
 const W=PageSizes.A4[0], H=PageSizes.A4[1], M=42, WIDTH=W-M*2, BOTTOM=58;
 const NAVY=rgb(.06,.14,.24), TEAL=rgb(.02,.43,.39), GOLD=rgb(.52,.39,.19);
 const INK=rgb(.14,.21,.29), MUTED=rgb(.34,.40,.47), LINE=rgb(.84,.88,.92);
@@ -292,10 +292,9 @@ function competitorsBrief(r:Report,a:LocationAnalysis){
   const all=reportCompetitors(a).filter(p=>p.distanceMeters<=a.radiusMeters),shown=briefCompetitors(a);
   r.paragraph(a.specialty+' · 동일 진료과 장소 '+fmt(all.length)+'곳 중 가까운 '+shown.length+'곳',{size:14,bold:true});
   r.paragraph('직선거리 순으로 최대 10곳을 선정했습니다. 진료 수준·매출 순위는 아닙니다.',{size:10,color:MUTED});
-  if(shown.length)r.table(['병원명','직선거리'],[WIDTH-100,100],shown.map((p,k)=>({cells:[(k+1)+'. '+brief(p.name,44),fmt(p.distanceMeters)+'m'],url:hospitalLink(p)})),10.5,6);
+  if(shown.length)r.table(['병원명','주소','직선거리'],[200,WIDTH-275,75],shown.map((p,k)=>({cells:[(k+1)+'. '+brief(p.name,44),p.address?.trim()||'주소 확인 필요',fmt(p.distanceMeters)+'m']})),10,10);
   else r.callout('표시할 동일 진료과 병원이 없습니다.','검색 결과가 없더라도 실제 병원이 없다고 단정할 수 없습니다. 현장 운영 여부를 확인하세요.');
-  r.paragraph('목록의 카카오맵 링크에서 주소·진료내용·운영시간을 확인하세요. 전체 목록은 웹사이트의 경쟁병원 메뉴에서 볼 수 있습니다.',{size:10,color:MUTED});
-  r.link('분석지점을 카카오맵에서 보기 ↗',coordinateLink(a.location.displayName,a.location.latitude,a.location.longitude));r.y-=25;
+  r.paragraph('거리는 분석지점에서 병원까지의 직선거리이며 실제 도보거리와 다릅니다. 진료내용·운영시간·실제 입주 층은 별도로 확인하세요. 전체 목록은 웹사이트의 경쟁병원 메뉴에서 볼 수 있습니다.',{size:10,color:MUTED});
   r.paragraph('자료: '+(a.provider==='kakao'?'Kakao Local':'OpenStreetMap')+' / '+date(a.analyzedAt)+'. 병원명·장소 분류 기준이며 실제 전문과목과 다를 수 있습니다.',{size:9,color:MUTED});
 }
 function financeBrief(r:Report,a:LocationAnalysis,i:OpeningInputs){
