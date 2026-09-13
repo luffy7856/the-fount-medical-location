@@ -337,6 +337,25 @@ export default function LocationLab() {
   const aiInsightRequestRef = useRef(0);
   const specialtySelectRef = useRef<HTMLSelectElement>(null);
   const radiusSelectRef = useRef<HTMLSelectElement>(null);
+  const analysisPanelRef = useRef<HTMLElement>(null);
+  const changeTab = useCallback((nextTab: PanelTab) => {
+    setTab(nextTab);
+    requestAnimationFrame(() => {
+      const panel = analysisPanelRef.current;
+      if (!panel) return;
+
+      if (window.matchMedia("(max-width: 800px)").matches) {
+        const tabs = panel.querySelector<HTMLElement>(".panel-tabs");
+        if (!tabs) return;
+        const stickyHeaderHeight = 58;
+        const top = window.scrollY + tabs.getBoundingClientRect().top - stickyHeaderHeight;
+        window.scrollTo({ top: Math.max(0, top), behavior: "auto" });
+        return;
+      }
+
+      panel.scrollTo({ top: 0, behavior: "auto" });
+    });
+  }, []);
   const openPicker = (ref: { current: HTMLSelectElement | null }) => {
     const select = ref.current as (HTMLSelectElement & { showPicker?: () => void }) | null;
     if (select?.showPicker) select.showPicker();
@@ -494,18 +513,18 @@ export default function LocationLab() {
         {populationActive && analysis.livingPopulation?.status === "available" && <div className="population-density-legend"><b>{analysis.livingPopulation.spatialUnit === "250m 격자" ? "250m 격자 실제 생활인구" : "생활인구 추정 밀도지수"}</b>{analysis.livingPopulation.densityBreaks ? <><span><i className="density-low" />낮음 ≤{analysis.livingPopulation.densityBreaks[0].toLocaleString()}명</span><span><i className="density-normal" />보통 ≤{analysis.livingPopulation.densityBreaks[1].toLocaleString()}명</span><span><i className="density-high" />높음 ≤{analysis.livingPopulation.densityBreaks[2].toLocaleString()}명</span><span><i className="density-very-high" />매우 높음 &gt;{analysis.livingPopulation.densityBreaks[2].toLocaleString()}명</span><small>색상 기준은 선택 반경 내 격자 사분위수 · 격자 클릭 시 실제 숫자 확인</small></> : <><span><i className="density-low" />낮음 0–39</span><span><i className="density-normal" />보통 40–59</span><span><i className="density-high" />높음 60–79</span><span><i className="density-very-high" />매우 높음 80–100</span><small>격자 클릭 시 숫자 확인 · 행정동 실제 총계 기반 공간분포 추정</small></>}</div>}
         <div className={`live-map-note ${analysis.livingPopulation ? "with-timeline" : ""}`}><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span>{analysis.livingPopulation?.status === "available" && <span><i className="population-dot" /> {analysis.livingPopulation.spatialUnit === "250m 격자" ? "생활인구 실제밀도" : "생활인구 추정밀도"}</span>}</div>
       </section>
-      <aside className="analysis-panel">
+      <aside ref={analysisPanelRef} className="analysis-panel">
         <div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>발행 {formatAnalysisTime(analysis.analyzedAt)}</small></div>
         <div className="sheet-handle" />
         <nav className="panel-tabs" aria-label="분석 결과 메뉴">
-          <button type="button" className={tab === "overview" ? "active" : ""} aria-pressed={tab === "overview"} onClick={() => setTab("overview")}><BarChart3 /><span>지역분석</span></button>
-          <button type="button" className={tab === "competitors" ? "active" : ""} aria-pressed={tab === "competitors"} onClick={() => setTab("competitors")}><Hospital /><span>경쟁병원</span></button>
-          <button type="button" className={tab === "forecast" ? "active" : ""} aria-pressed={tab === "forecast"} onClick={() => setTab("forecast")}><TrendingUp /><span>3년전망</span></button>
-          <button type="button" className={tab === "profitability" ? "active" : ""} aria-pressed={tab === "profitability"} onClick={() => setTab("profitability")}><Calculator /><span>수익성</span></button>
-          <button type="button" className={tab === "compare" ? "active" : ""} aria-pressed={tab === "compare"} onClick={() => setTab("compare")}><GitCompareArrows /><span>후보지 비교</span></button>
+          <button type="button" className={tab === "overview" ? "active" : ""} aria-pressed={tab === "overview"} onClick={() => changeTab("overview")}><BarChart3 /><span>지역분석</span></button>
+          <button type="button" className={tab === "competitors" ? "active" : ""} aria-pressed={tab === "competitors"} onClick={() => changeTab("competitors")}><Hospital /><span>경쟁병원</span></button>
+          <button type="button" className={tab === "forecast" ? "active" : ""} aria-pressed={tab === "forecast"} onClick={() => changeTab("forecast")}><TrendingUp /><span>3년전망</span></button>
+          <button type="button" className={tab === "profitability" ? "active" : ""} aria-pressed={tab === "profitability"} onClick={() => changeTab("profitability")}><Calculator /><span>수익성</span></button>
+          <button type="button" className={tab === "compare" ? "active" : ""} aria-pressed={tab === "compare"} onClick={() => changeTab("compare")}><GitCompareArrows /><span>후보지 비교</span></button>
         </nav>
         <div key={tab} className="panel-view">
-          {tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} aiLoading={aiLoading} />}
+          {tab === "overview" && <OverviewPanel analysis={analysis} onTab={changeTab} aiLoading={aiLoading} />}
           {tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}
           {tab === "forecast" && <ForecastPanel analysis={analysis} />}
           {tab === "profitability" && <div className="panel-content"><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}
