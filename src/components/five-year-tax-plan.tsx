@@ -1,0 +1,26 @@
+'use client';
+import { ArrowUpRight, ChevronDown } from 'lucide-react';
+import { calculateFiveYearPlan, DEFAULT_OPENING_INPUTS, INPUT_LIMITS, type OpeningInputs } from '@/data/opening-plan';
+const money=(n:number)=>Math.round(n).toLocaleString()+'만원';
+const fields:[keyof OpeningInputs,string][]=[['annualRevenueGrowth','연간 매출 증가율 (%)'],['annualFixedGrowth','연간 고정비 증가율 (%)'],['annualDepreciation','연간 감가상각비 (만원)'],['annualIncomeDeduction','연간 소득공제 합계 (만원)']];
+export function FiveYearTaxPlan({inputs,onChange,factor,scenario}:{inputs:OpeningInputs;onChange:(i:OpeningInputs)=>void;factor:number;scenario:string}) {
+  const years=calculateFiveYearPlan(inputs,factor),last=years[4];
+  const totalTax=years.slice(1).reduce((sum,y)=>sum+y.totalTax,0);
+  const max=Math.max(1,...years.flatMap(y=>[y.revenue,y.cashCosts]));
+  const line=(key:'revenue'|'cashCosts')=>years.map((y,k)=>(k?'L':'M')+' '+(55+k*110)+' '+(170-y[key]/max*130)).join(' ');
+  return <section className="fp-tax" id="five-year-tax-plan">
+    <div className="fp-section-head"><div><span className="fp-eyebrow">GROWTH & TAX PLANNING</span><h3>05. 매출이 커지면, 세금은 얼마나 늘어날까요?</h3></div></div>
+    <p>2~5년차의 매출과 비용, 세금까지 함께 보세요. 잘 버는 것에서 끝나지 않고, 세후 얼마를 남길지 계획하는 단계입니다.</p>
+    <div className="fp-notice"><p><b>개인 단독개원 · 병원 사업소득만 가정한 세액입니다.</b> 법인·공동개원에는 적용할 수 없습니다. 세액공제·감면 전 산출세액이며 실제 신고·납부액과 다릅니다. 현행 세율을 5년간 동일하게 적용했습니다.</p></div>
+    <div className="fp-inputs">{fields.map(([key,label])=><label className="fp-field" key={key}><span>{label}</span><div><input aria-label={label} type="number" step={key.includes('Growth')?.5:1} min={INPUT_LIMITS[key][0]} max={INPUT_LIMITS[key][1]} value={inputs[key]??DEFAULT_OPENING_INPUTS[key]} onChange={e=>onChange({...inputs,[key]:Math.min(INPUT_LIMITS[key][1],Math.max(INPUT_LIMITS[key][0],Number(e.target.value)||0))})}/></div></label>)}</div>
+    <p className="fp-help">증가율 5%·3%는 예시입니다. 감소하는 경우 음수도 입력할 수 있습니다. 변동비는 매출에 비례하고 고정비만 별도 증가율을 적용합니다. 소득공제 기본값은 본인 공제 150만원입니다. 감가상각비는 세무대리인이 확인한 인정액을 입력하세요(기본값 0).</p>
+    <div className="fp-chart"><div><b>5년간 매출과 운영지출</b><span>{scenario} 시나리오 · 만원</span></div><svg viewBox="0 0 550 210" role="img" aria-label="1~5년차 매출과 현금 운영비 비교. 아래 표에 연도별 금액이 있습니다."><text x="2" y="40">{Math.round(max).toLocaleString()}</text><text x="12" y="174">0</text><path d={line('revenue')} fill="none" stroke="#078878" strokeWidth="3"/><path d={line('cashCosts')} fill="none" stroke="#ce9650" strokeWidth="3"/>{years.map((y,k)=><text key={y.year} x={55+k*110} y="197" textAnchor="middle">{y.year}년차</text>)}</svg><p><span style={{color:'#078878'}}>● 매출</span>　<span style={{color:'#a9702e'}}>● 현금 운영비</span> · 1년차 초기 환자 확보율 반영 / 이자·감가상각·원금상환·세금 제외</p></div>
+    <div className="fp-tax-highlights"><article><span>5년차 연매출</span><strong>{money(last.revenue)}</strong></article><article><span>5년차 예상 세금 · 국세+지방세</span><strong>{money(last.totalTax)}</strong></article><article><span>2~5년차 예상 세금 합계</span><strong>{money(totalTax)}</strong></article></div>
+    <div className="fp-table-wrap"><table><caption>2~5년차 수익과 세금 비교 · {scenario} / 단위: 만원</caption><thead><tr><th>연간 항목</th>{years.slice(1).map(y=><th key={y.year}>{y.year}년차</th>)}</tr></thead><tbody>{([
+      ['매출','revenue'],['현금 운영비','cashCosts'],['영업이익 · 감가상각 차감','operatingProfit'],['사업용 대출이자','interest'],['사업소득 · 이자 차감','businessIncome'],['과세표준 · 소득공제 차감','taxable'],['예상 종합소득세 · 산출세액','nationalTax'],['예상 지방소득세 · 산출세액','localTax'],['예상 세금 합계','totalTax'],['대출 원금상환','principal'],['세후 잔여현금 · 생활비까지 차감','afterTaxCash']
+    ] as const).map(([label,key])=><tr key={key} className={key==='totalTax'||key==='afterTaxCash'?'fp-tax-total':''}><th>{label}</th>{years.slice(1).map(y=><td key={y.year}>{Math.round(y[key]).toLocaleString()}</td>)}</tr>)}</tbody></table></div>
+    <p className="fp-help">모바일에서는 표를 좌우로 밀어 확인하세요. 금액 반올림으로 표시된 합계에 차이가 날 수 있습니다. 세후 잔여현금은 해당 연도 세액을 부담액으로 차감한 비교값이며, 실제 납부월의 통장 잔액은 아닙니다.</p>
+    <details className="fp-method"><summary>세금과 현금 계산이 다른 이유 <ChevronDown size={18}/></summary><p>영업이익 = 매출 − 현금 운영비 − 감가상각비. 과세표준 = 영업이익 − 사업 관련 인정 대출이자 − 소득공제(최소 0). 대출원금·보증금·원장 생활비는 필요경비로 빼지 않습니다.</p><p>세후 현금 = 매출 − 현금 운영비 − 원리금 − 생활비 − 예상 국세·지방세. 감가상각은 현금 유출이 아니며, 앞에서 입력한 세금 적립액도 이 표에서는 다시 빼지 않습니다. 이 성장률과 예상 세금을 위의 월별 현금흐름·세후 회수기간에도 동일하게 반영합니다.</p><p>매년 12개월 운영, 다른 종합소득·이월결손금·세무조정·세액공제·감면·기납부세액·가산세는 미반영합니다. 실제 비용의 인정 여부와 자산별 감가상각 한도는 별도 확인해야 합니다. 소득이 없을 때의 0은 이 모형의 산출세액만 뜻합니다.</p><p>세율 확인: 2026.09.13 · <a href="https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7667&mi=2315" target="_blank" rel="noopener noreferrer">국세청 종합소득세 세율</a> / <a href="https://www.law.go.kr/법령/지방세법/제92조" target="_blank" rel="noopener noreferrer">지방세법 제92조</a>. 지방세는 같은 과세표준의 지방소득세율로 계산하며, 이 공제 전 모형에서는 국세 산출세액의 10%와 같습니다.</p></details>
+    <div className="fp-tax-cta"><span>THE FOUNT TAX PLAN</span><h3>성장한 매출이,<br/>원장님의 자산으로 남도록.</h3><p>{totalTax>0?'입력한 조건에서 2~5년차 세금 합계는 약 '+money(totalTax)+'입니다. ':'이 가정에서는 산출세액이 없지만, 실제 신고 조건은 따로 확인해야 합니다. '}비용 증빙, 감가상각, 인력·자산 구조를 함께 점검해 우리 병원에 적용 가능한 절세 방향을 확인해보세요.</p><a href="https://www.thefount.co.kr/contact" target="_blank" rel="noopener noreferrer">더파운트 절세 플랜 상담하기 <ArrowUpRight size={18}/></a><small>절세 가능 여부와 금액은 자료 검토 후 안내합니다. 입력값은 상담 페이지에 자동 전송되지 않습니다.</small></div>
+  </section>;
+}

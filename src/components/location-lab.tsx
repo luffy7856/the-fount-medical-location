@@ -11,7 +11,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { specialties, matchesSpecialty, type Specialty } from "@/data/specialties";
 import type { AiInsightItem, AiInterpretation, LivingPopulation, LocationAnalysis, LiveMetric, LivePlace } from "@/data/location-types";
 import { analysisStorageId, loadSavedAnalyses, mergeSavedAnalysis, storeSavedAnalyses } from "@/data/saved-analyses";
-import { calculateOpeningPlan, DEFAULT_OPENING_INPUTS, type OpeningInputs } from "@/data/opening-plan";
+import { DEFAULT_OPENING_INPUTS, normalizeOpeningInputs, type OpeningInputs } from "@/data/opening-plan";
+import { FinancialPlanningPanel } from "./financial-planning-panel";
 
 const LiveMap = dynamic(() => import("./live-map"), { ssr: false, loading: () => <div className="map-loading"><Activity className="spin" /> 지도를 불러오는 중</div> });
 
@@ -167,29 +168,6 @@ function withLivingPopulation(analysis: LocationAnalysis, livingPopulation: Livi
   return { ...analysis, livingPopulation };
 }
 
-function FinancialPlanningPanel({ analysis, inputs, onChange, compact = false }: { analysis: LocationAnalysis; inputs: OpeningInputs; onChange: (value: OpeningInputs) => void; compact?: boolean }) {
-  const result = calculateOpeningPlan(analysis, inputs);
-  const update = (key: keyof OpeningInputs, value: number) => onChange({ ...inputs, [key]: Number.isFinite(value) ? value : 0 });
-  const fields: [keyof OpeningInputs, string, string][] = [
-    ["floor", "입주 층", "층"], ["areaPyeong", "전용면적", "평"], ["depositManwon", "보증금", "만원"],
-    ["monthlyRentManwon", "월세", "만원/월"], ["openingBudgetManwon", "시설·장비 등 개원자금", "만원"],
-    ["monthlyPayrollManwon", "예상 월 인건비", "만원/월"], ["monthlyMarketingManwon", "예상 월 마케팅비", "만원/월"]
-  ];
-  const compactMoney = (value: number) => value >= 10000 ? `${(value / 10000).toFixed(1)}억원` : `${value.toLocaleString()}만원`;
-  return <section className={`panel-section feasibility-card ${compact ? "compact" : ""}`}>
-    <div className="feasibility-heading"><div><span>OPENING FEASIBILITY</span><h3>입지와 개원자금을 함께 비교합니다</h3><p>{analysis.specialty === "비뇨기과" ? "비뇨기과 전용 수익모형은 아직 없어 일반 의원 참고모형을 사용합니다." : `${analysis.specialty} 기준 참고모형에 층·면적·임대조건과 현재 입지 관측점수를 반영합니다.`}</p></div><Calculator /></div>
-    <div className="opening-input-grid">{fields.map(([key, label, unit]) => <label key={key}><span>{label}</span><div><input type="number" min={key === "floor" ? -2 : 0} value={inputs[key]} onChange={event => update(key, Number(event.target.value))} /><small>{unit}</small></div></label>)}</div>
-    <div className="estimate-notice"><AlertTriangle /><p><b>입력값 기반 사전 시뮬레이션</b><span>아래 결과는 후보지 비교를 돕는 참고 범위이며 실제 매출·수익이나 대출심사 결과를 보장하지 않습니다.</span></p></div>
-    <div className="feasibility-results">
-      <article className="revenue-range"><Building2 /><span>월매출 참고범위</span><b>{compactMoney(result.revenueLow)}~{compactMoney(result.revenueHigh)}</b><small>중간 참고값 {compactMoney(result.expectedRevenue)} · 입력값 변경 시 재계산</small></article>
-      <article><Coins /><span>월 영업잉여 참고값</span><b className={result.monthlyOperatingProfit <= 0 ? "negative" : ""}>{result.monthlyOperatingProfit.toLocaleString()}만원</b><small>세금·대출원리금·원장 보수 전</small></article>
-      <article><TimerReset /><span>투자회수 참고값</span><b>{result.paybackMonths ? `${result.paybackMonths}개월` : "추가 검토"}</b><small>보증금 포함 총투자액 기준</small></article>
-    </div>
-    <div className="benchmark-strip"><div><span>시설·장비 개원자금 (보증금 제외)</span><b>{inputs.openingBudgetManwon.toLocaleString()}만원</b></div><ArrowRight /><div><span>{analysis.specialty} 면적 기준 참고 개원자금</span><b>{result.benchmarkCapital.toLocaleString()}만원</b></div><div className={result.capitalDifference > 10 ? "warning" : "healthy"}><span>참고값 대비</span><b>{result.capitalDifference > 0 ? "+" : ""}{result.capitalDifference}%</b></div></div>
-    <div className="planning-notes"><span>월세/예상매출 {result.rentRatio}%</span><span>{inputs.floor}층 입지 보정 반영</span><span>입지점수 {analysis.observedScore || "—"}점 반영</span></div>
-    <p className="estimate-disclaimer">실제 개원 전에는 상권·수가·장비·인력·운영일수와 금융조건을 별도로 검증해야 합니다.</p>
-  </section>;
-}
 
 function evidenceNames(interpretation: AiInterpretation, item: AiInsightItem) {
   const byId = new Map(interpretation.evidence.map(fact => [fact.id, fact.label]));
@@ -242,7 +220,7 @@ function OverviewPanel({ analysis, onTab, aiLoading }: { analysis: LocationAnaly
     <RegionalProfileBlock analysis={analysis} />
     <DecisionEvidence analysis={analysis} />
     <GroundedInsight analysis={analysis} loading={aiLoading} />
-    <button className="profitability-entry" type="button" onClick={() => onTab("profitability")}><span><Calculator /><b>수익성은 입력값으로 직접 확인하세요</b><small>면적·월세·개원자금을 입력하면 참고 매출범위와 회수기간을 계산합니다.</small></span><ChevronRight /></button>
+    <button className="profitability-entry" type="button" onClick={() => onTab("profitability")}><span><Calculator /><b>수익성은 입력값으로 직접 확인하세요</b><small>환자 수와 운영비를 입력하면 손익분기점·잔여현금·회수기간을 비교할 수 있습니다.</small></span><ChevronRight /></button>
     <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><a className="next-step-link" href="https://www.thefount.co.kr/" target="_blank" rel="noopener noreferrer">정밀 개원분석 상담하기 <ArrowRight /></a></section>
     <section className="source-note"><b>현재 사용 데이터</b><div><span>{analysis.provider === "kakao" ? "Kakao Local API" : "OpenStreetMap"}</span>{analysis.hiraMedical?.status === "available" && <span>HIRA 공식 수치</span>}{analysis.demographics && <span>SGIS {analysis.demographics.year}</span>}{analysis.livingPopulation?.status === "available" && <span>서울 생활인구</span>}{analysis.consumerPower?.status === "available" && <span>서울시 소비</span>}{analysis.rentMarket?.status === "available" && <span>상가 임대료</span>}{analysis.developmentPlans?.status === "available" && <span>개발계획</span>}</div><small>분석 시각 {formatAnalysisTime(analysis.analyzedAt)}{analysis.livingPopulation?.status === "available" ? ` · 생활인구 공간 단위: ${analysis.livingPopulation.spatialUnit}${analysis.livingPopulation.spatialUnit === "250m 격자" ? "(고유 격자 합계)" : "(행정동 집계)"}` : ""} · 공개 데이터의 등록 상태에 따라 현장과 차이가 있을 수 있습니다.</small></section>
     <PrintAppendix analysis={analysis} />
@@ -434,7 +412,7 @@ export default function LocationLab() {
       const response = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ analysis, openingInputs })
+        body: JSON.stringify({ analysis, openingInputs: normalizeOpeningInputs(openingInputs) })
       });
       if (!response.ok) {
         const message = await response.json().catch(() => null) as { error?: string } | null;
@@ -530,7 +508,7 @@ export default function LocationLab() {
           {tab === "overview" && <OverviewPanel analysis={analysis} onTab={setTab} aiLoading={aiLoading} />}
           {tab === "competitors" && <CompetitorPanel analysis={analysis} selected={selectedPlace} onSelect={setSelectedPlace} />}
           {tab === "forecast" && <ForecastPanel analysis={analysis} />}
-          {tab === "profitability" && <div className="panel-content"><div className="section-intro"><span>OPENING RETURN MODEL</span><h2>개원 수익성·회수기간</h2><p>후보지의 임대조건과 개원자금을 입력해 진료과별 참고값과 비교하세요.</p></div><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}
+          {tab === "profitability" && <div className="panel-content"><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}
           {tab === "compare" && <ComparePanel saved={saved} onOpen={openSavedAnalysis} onRemove={removeSavedAnalysis} onClear={() => setSaved([])} />}
         </div>
       </aside>

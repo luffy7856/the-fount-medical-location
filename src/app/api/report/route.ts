@@ -3,7 +3,7 @@ import { join } from "node:path";
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, PDFPage, PDFFont, PageSizes, rgb } from "pdf-lib";
 import type { LocationAnalysis } from "@/data/location-types";
-import { calculateOpeningPlan, type OpeningInputs } from "@/data/opening-plan";
+import { calculateOpeningPlan, calculateFiveYearPlan, INPUT_LIMITS, type OpeningInputs } from "@/data/opening-plan";
 import { specialties } from "@/data/specialties";
 
 export const runtime = "nodejs";
@@ -57,7 +57,9 @@ function validPayload(value: unknown): value is ReportPayload {
     && finite(inputs.monthlyRentManwon, 0, 1000000)
     && finite(inputs.openingBudgetManwon, 0, 10000000)
     && finite(inputs.monthlyPayrollManwon, 0, 1000000)
-    && finite(inputs.monthlyMarketingManwon, 0, 1000000);
+    && finite(inputs.monthlyMarketingManwon, 0, 1000000)
+    && (Object.keys(INPUT_LIMITS) as (keyof OpeningInputs)[]).every(key=>finite(inputs[key],...INPUT_LIMITS[key]))
+    && Number.isInteger(inputs.loanMonths) && Number.isInteger(inputs.rampMonths);
 }
 
 function cleanText(value: unknown, fallback = "-") {
@@ -348,7 +350,7 @@ function drawFinancialPage(document: PDFDocument, fonts: Fonts, analysis: Locati
   const page = document.addPage(PageSizes.A4);
   const c = new ReportCanvas(page, fonts);
   const result = calculateOpeningPlan(analysis, inputs);
-  addHeader(c, "개원 수익성 사전 시뮬레이션", `${analysis.specialty} 참고모형`);
+  addHeader(c, "개원 수익성 사전 시뮬레이션", "환자 수 기반 / 기준 시나리오");
 
   c.sectionLabel("Input conditions", c.y);
   c.y -= 30;
@@ -356,7 +358,7 @@ function drawFinancialPage(document: PDFDocument, fonts: Fonts, analysis: Locati
     ["입주 층", `${inputs.floor}층`], ["전용면적", `${inputs.areaPyeong.toLocaleString()}평`],
     ["보증금", `${inputs.depositManwon.toLocaleString()}만원`], ["월세", `${inputs.monthlyRentManwon.toLocaleString()}만원/월`],
     ["시설·장비 개원자금", `${inputs.openingBudgetManwon.toLocaleString()}만원`], ["예상 월 인건비", `${inputs.monthlyPayrollManwon.toLocaleString()}만원`],
-    ["예상 월 마케팅비", `${inputs.monthlyMarketingManwon.toLocaleString()}만원`], ["입지 관측점수", `${analysis.observedScore || "-"}점`]
+    ["하루 환자 수", `${inputs.dailyPatients}명`], ["환자당 매출 / 진료일", `${inputs.revenuePerPatient}만원 / ${inputs.clinicDays}일`]
   ];
   inputRows.forEach(([label, value], index) => {
     const column = index % 4;
@@ -372,9 +374,9 @@ function drawFinancialPage(document: PDFDocument, fonts: Fonts, analysis: Locati
   c.sectionLabel("Estimated outcome", c.y);
   c.y -= 30;
   const resultCards = [
-    ["예상 월매출", `${result.expectedRevenue.toLocaleString()}만원`, `${result.revenueLow.toLocaleString()} - ${result.revenueHigh.toLocaleString()}만원 범위`],
-    ["예상 월 영업잉여", `${result.monthlyOperatingProfit.toLocaleString()}만원`, "세금·대출원리금·원장 보수 전"],
-    ["예상 투자회수기간", result.paybackMonths ? `${result.paybackMonths}개월` : "회수 어려움", "보증금 포함 총투자액 기준"]
+    ["운영비 손익분기 / 일", result.breakEvenPatients === null ? "산정 불가" : `${result.breakEvenPatients}명`, "대출·생활비·세금 적립 제외"],
+    ["월 잔여현금", `${Math.round(result.monthlyCash).toLocaleString()}만원`, "목표 도달 월·예상 세금 반영"],
+    ["초기 자기자금 회수", result.paybackMonths === null ? "10년 내 미회수" : result.paybackMonths === 0 ? "초기 자기자금 없음" : `${result.paybackMonths}개월`, "원리금·생활비·예상 세금 차감"]
   ];
   resultCards.forEach(([label, value, note], index) => {
     const x = MARGIN + index * 172;
@@ -385,13 +387,13 @@ function drawFinancialPage(document: PDFDocument, fonts: Fonts, analysis: Locati
   });
 
   c.y -= 118;
-  c.sectionLabel("Benchmark review", c.y);
+  c.sectionLabel("Cashflow review", c.y);
   c.y -= 30;
   const benchmarkRows = [
     ["시설·장비 개원자금 (보증금 제외)", `${inputs.openingBudgetManwon.toLocaleString()}만원`],
-    [`${analysis.specialty} 면적 기준 참고 개원자금`, `${result.benchmarkCapital.toLocaleString()}만원`],
-    ["참고값 대비", `${result.capitalDifference > 0 ? "+" : ""}${result.capitalDifference}%`],
-    ["월세 / 예상매출", `${result.rentRatio}%`]
+    ["첫 12개월 운영 예비자금", `${Math.round(result.reserve).toLocaleString()}만원`],
+    ["초기 자기자금", `${result.equity.toLocaleString()}만원`],
+    ["상환·생활비·적립 포함 손익분기 / 일", result.cashBreakEvenPatients === null ? "산정 불가" : `${result.cashBreakEvenPatients}명`]
   ];
   benchmarkRows.forEach(([label, value], index) => {
     const y = c.y - index * 32;
@@ -418,8 +420,77 @@ function drawFinancialPage(document: PDFDocument, fonts: Fonts, analysis: Locati
   c.text("정밀 개원분석이 필요하신가요?", MARGIN + 18, 127, 13, { bold: true, color: WHITE });
   c.text("입지·자금·인건비·장비·세금·손익분기점을 함께 검토합니다.", MARGIN + 18, 108, 8, { color: rgb(.75, .82, .89) });
   c.text("www.thefount.co.kr  |  070-8064-2325", MARGIN + 18, 92, 8, { bold: true, color: rgb(.52, .9, .82) });
-  c.text("본 수치는 공개데이터와 입력값을 이용한 사전 시뮬레이션이며 보장 매출이 아닙니다.", MARGIN, 58, 7.2, { color: MUTED });
+  c.text("수익성은 입력 가정 기반입니다. 초기 값은 예시이며 실제 매출 예측이 아닙니다.", MARGIN, 58, 7.2, { color: MUTED });
   c.footer(4);
+}
+
+function drawCashflowPage(document: PDFDocument, fonts: Fonts, analysis: LocationAnalysis, inputs: OpeningInputs) {
+  const page=document.addPage(PageSizes.A4),c=new ReportCanvas(page,fonts);
+  const result=calculateOpeningPlan(analysis,inputs),amount=(n:number)=>Math.round(n).toLocaleString();
+  addHeader(c,"12개월 현금흐름과 계산 가정","기준 시나리오 / 금액 단위: 만원");
+  const values=result.months.map(m=>m.cash),min=Math.min(0,...values),max=Math.max(1,...values);
+  const y=(v:number)=>555+(v-min)/(max-min)*115;
+  c.text("월 잔여현금",MARGIN,706,12,{bold:true,color:NAVY});
+  page.drawLine({start:{x:MARGIN+40,y:y(0)},end:{x:PAGE_WIDTH-MARGIN,y:y(0)},color:LINE,thickness:1});
+  c.text(amount(max),MARGIN,670,7,{color:MUTED});c.text(amount(min),MARGIN,555,7,{color:MUTED});
+  result.months.forEach((m,index)=>{
+    const x=MARGIN+40+index*40;
+    if(index>0)page.drawLine({start:{x:x-40,y:y(values[index-1])},end:{x,y:y(m.cash)},color:TEAL,thickness:2});
+    page.drawCircle({x,y:y(m.cash),size:2.5,color:m.cash<0?RED:TEAL});
+    c.text(`${m.month}월`,x-5,535,7,{color:MUTED});
+  });
+  const columns=[MARGIN+8,MARGIN+65,MARGIN+145,MARGIN+230,MARGIN+320,MARGIN+415];
+  ["월","매출","영업잉여","원리금","잔여현금","누적현금"].forEach((v,k)=>c.text(v,columns[k],502,8,{bold:true,color:NAVY}));
+  result.months.forEach((m,index)=>{
+    const y=477-index*21;
+    if(index%2===0)page.drawRectangle({x:MARGIN,y:y-6,width:PAGE_WIDTH-MARGIN*2,height:21,color:PALE});
+    [m.month,m.revenue,m.operating,m.principal+m.interest,m.cash,m.cumulativeCash].forEach((v,k)=>c.text(amount(v),columns[k],y,8,{color:k>=4&&v<0?RED:TEXT}));
+  });
+  const assumptions=[
+    `첫 달 환자 확보율 ${inputs.initialPercent}% / ${inputs.rampMonths}개월째 목표 도달. 이후 연 매출·고정비 증가율 반영.`,
+    `월 기타 고정비 ${amount(inputs.monthlyOtherCost)} / 마케팅 ${amount(inputs.monthlyMarketingManwon)} / 변동비 ${inputs.variablePercent}%.`,
+    `대출 ${amount(result.loan)} / 연 ${inputs.annualInterest}% / ${inputs.loanMonths}개월 원금균등상환.`,
+    `월 생활비 ${amount(inputs.ownerWithdrawal)} / 예상 세금은 연간 산출세액을 월별로 균등 반영합니다.`,
+    "보증금 반환·입금 지연·물가·장비 교체 미반영. 입지점수와 층수로 매출을 보정하지 않습니다.",
+    "회수기간은 120개월 누적현금 기준. 예비자금은 초기 적자로 이미 반영되어 중복 가산하지 않습니다.",
+  ];
+  assumptions.forEach((v,k)=>c.text(v,MARGIN,214-k*20,7.8,{color:MUTED}));
+  [.8,1,1.2].forEach((factor,index)=>{
+    const r=calculateOpeningPlan(analysis,inputs,factor);
+    c.text(`${["환자 -20%","기준","환자 +20%"][index]}: ${amount(r.monthlyCash)}만원`,MARGIN+index*170,76,8,{bold:true,color:NAVY});
+  });
+  c.text("위 비교는 목표 도달 월의 예상 세금을 차감한 잔여현금입니다. ±20%는 예측 신뢰구간이 아닙니다.",MARGIN,58,7,{color:MUTED});
+  c.footer(5);
+}
+
+function drawTaxProjectionPage(document:PDFDocument,fonts:Fonts,inputs:OpeningInputs) {
+  const page=document.addPage(PageSizes.A4),c=new ReportCanvas(page,fonts);
+  const years=calculateFiveYearPlan(inputs).slice(1);
+  addHeader(c,"2-5년차 성장과 세금 계획","개인 단독개원 / 기준 시나리오 / 단위: 만원");
+  c.paragraph("현행 세율을 5년간 고정 적용한 산출세액입니다. 실제 신고·납부액이 아닙니다. 다른 소득·이월결손금·세액공제·감면·기납부세액은 반영하지 않았습니다.",MARGIN,711,PAGE_WIDTH-MARGIN*2,9,15,{color:MUTED,maxLines:3});
+  c.text("연 매출 증가 "+inputs.annualRevenueGrowth+"% / 고정비 증가 "+inputs.annualFixedGrowth+"%",MARGIN,650,10,{bold:true,color:NAVY});
+  c.text("연 감가상각 "+inputs.annualDepreciation+"만원 / 소득공제 "+inputs.annualIncomeDeduction+"만원",MARGIN,629,9,{color:MUTED});
+  const cols=[MARGIN+8,MARGIN+194,MARGIN+271,MARGIN+348,MARGIN+425];
+  ["연간 항목","2년차","3년차","4년차","5년차"].forEach((label,k)=>c.text(label,cols[k],592,9,{bold:true,color:NAVY}));
+  const rows=[
+    ["매출","revenue"],["현금 운영비","cashCosts"],["영업이익 (감가상각 차감)","operatingProfit"],
+    ["사업 관련 대출이자","interest"],["사업소득","businessIncome"],["과세표준 (소득공제 후)","taxable"],
+    ["예상 종소세 산출세액","nationalTax"],["예상 지방소득세 산출세액","localTax"],
+    ["예상 세금 합계","totalTax"],["대출 원금상환","principal"],["세후 현금 (생활비 차감)","afterTaxCash"],
+  ] as const;
+  rows.forEach(([label,key],index)=>{
+    const y=566-index*27;
+    if(index%2===0)page.drawRectangle({x:MARGIN,y:y-8,width:PAGE_WIDTH-MARGIN*2,height:27,color:PALE});
+    c.text(label,cols[0],y,8,{color:MUTED});
+    years.forEach((v,k)=>c.text(Math.round(v[key]).toLocaleString(),cols[k+1],y,8.5,{bold:key==="totalTax",color:v[key]<0?RED:NAVY}));
+  });
+  c.paragraph("세후 현금은 해당 연도 세액을 차감한 비교값으로, 납부월의 실제 잔액은 아닙니다. 보증금·대출원금·생활비는 세금 계산의 필요경비로 공제하지 않습니다. 앞서 입력한 세금 적립액을 중복 차감하지 않습니다.",MARGIN,244,PAGE_WIDTH-MARGIN*2,8,13,{color:MUTED,maxLines:4});
+  c.paragraph("사업 관련 인정 이자·감가상각비·소득공제를 가정했습니다. 실제 증빙과 한도는 별도 검토가 필요합니다. 앞쪽 회수기간에도 동일한 성장률과 예상 세금을 적용합니다.",MARGIN,183,PAGE_WIDTH-MARGIN*2,8,13,{color:MUTED,maxLines:3});
+  c.text("출처: 국세청 종합소득세 세율 / 소득세법 제55조 / 지방세법 제92조",MARGIN,130,7.5,{color:MUTED});
+  c.text("세율 확인: 2026.09.13. 지방세는 동일 과세표준의 지방소득세율 적용.",MARGIN,112,7.5,{color:MUTED});
+  c.text("성장한 매출이 자산으로 남도록, 더파운트 절세 플랜을 상담하세요.",MARGIN,79,10,{bold:true,color:NAVY});
+  c.text("www.thefount.co.kr/contact / 절세 가능 여부와 금액은 자료 검토 후 안내",MARGIN,58,7.5,{color:MUTED});
+  c.footer(6);
 }
 
 async function createReport(payload: ReportPayload) {
@@ -437,6 +508,8 @@ async function createReport(payload: ReportPayload) {
   drawEvidencePage(document, fonts, payload.analysis);
   drawRegionalPage(document, fonts, payload.analysis);
   drawFinancialPage(document, fonts, payload.analysis, payload.openingInputs);
+  drawCashflowPage(document, fonts, payload.analysis, payload.openingInputs);
+  drawTaxProjectionPage(document, fonts, payload.openingInputs);
   return document.save({ useObjectStreams: true });
 }
 
