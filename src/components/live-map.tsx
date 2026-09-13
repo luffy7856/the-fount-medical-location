@@ -15,10 +15,10 @@ const POPULATION_COLORS = [
 
 const ANALYSIS_LOCATION_ICON = divIcon({
   className: "analysis-location-marker",
-  html: '<div class="analysis-flag"><span class="analysis-flag-label">분석 위치</span><i class="analysis-flag-pole"></i><i class="analysis-flag-sheet">HERE</i><i class="analysis-flag-base"></i></div>',
-  iconSize: [76, 62],
+  html: '<div class="analysis-flag"><i class="analysis-flag-pole"></i><span class="analysis-flag-sheet"><small>THE FOUNT</small><b>분석 지점</b></span><i class="analysis-flag-base"></i></div>',
+  iconSize: [112, 62],
   iconAnchor: [17, 56],
-  popupAnchor: [18, -53]
+  popupAnchor: [36, -53]
 });
 
 function distanceMeters(latitude: number, longitude: number, targetLatitude: number, targetLongitude: number) {
