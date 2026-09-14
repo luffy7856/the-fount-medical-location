@@ -164,6 +164,18 @@
 @media(max-width:470px){.saved-analysis-list article>button:first-child{grid-template-columns:20px minmax(0,1fr) 30px 12px;padding:10px 8px}.saved-analysis-list article small{font-size:8px}}
 
 /* Trust-first result hierarchy */
+/* Keep essential analysis controls visible without opening mobile filters. */
+@media(max-width:800px){
+  .filter-bar.live-filter,.filter-bar.live-filter.mobile-open{position:sticky;inset:auto;top:58px;height:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px;overflow:visible;z-index:1001}
+  .filter-bar.live-filter .search-field,.filter-bar.live-filter.mobile-open .search-field{grid-column:1/-1;width:100%;min-width:0;height:48px}
+  .filter-bar.live-filter>.filter-picker,.filter-bar.live-filter.mobile-open>.filter-picker{display:grid;min-width:0;width:100%;height:52px;padding-right:38px}
+  .filter-bar.live-filter .filter-picker select{width:100%;min-width:0;font-size:16px}
+  .filter-bar.live-filter .filter-picker>span{font-size:12px}
+  .filter-bar.live-filter .filter-picker>button{height:50px}
+  .filter-bar.live-filter .search-field input{font-size:16px}
+  .filter-bar.live-filter .analyze-button,.filter-bar.live-filter.mobile-open .analyze-button{display:flex;grid-column:1/-1;width:100%;margin:0;height:44px}
+  .filter-bar.live-filter.mobile-open .population-date{grid-column:1/-1;min-width:0;width:100%}
+}
 .score-row{grid-template-columns:112px 1fr 42px}.score-row b{white-space:nowrap}
 /* Above Leaflet panes and mobile analysis sheets; never clipped by the map. */
 .error-banner{z-index:10000;top:calc(env(safe-area-inset-top,0px) + 76px);width:min(600px,calc(100vw - 24px));max-width:none;align-items:flex-start;padding:16px;font-size:15px;line-height:1.6;box-sizing:border-box;max-height:calc(100dvh - 100px);overflow-y:auto;box-shadow:0 12px 36px #172c4033}
