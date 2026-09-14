@@ -41,6 +41,7 @@ export function locationNarrative(a: LocationAnalysis) {
   const fmt=(n:number)=>Math.round(n).toLocaleString('ko-KR');
   const pct=(n:number,total:number)=>(n/total*100).toFixed(1)+'%';
   const sections: {title:string;text:string;source:string}[]=[];
+  const focus=a.specialty==='피부과'||a.specialty==='성형외과'?'미용 중심 진료와 질환 중심 진료는 대상 환자와 방문 목적이 다릅니다. 연령 구성과 소비 지표를 진료 모델에 맞춰 비교하세요.':a.specialty==='소아청소년과'?'아동 인구와 학교·보육시설을 함께 보고 실제 가족 거주와 반복 방문 가능성을 비교하세요.':a.specialty==='정형외과'||a.specialty==='내과'?'중장년·고령층의 거주 규모와 직장 수요를 함께 보고 반복 방문 접근성을 비교하세요.':'목표 진료 대상의 연령대와 실제 방문 동선을 함께 비교하세요.';
   if(d&&d.residentPopulation>0){
     const sameYear=p?.year===d.year;
     const groups: ReadonlyArray<readonly [string,number|undefined]>=sameYear&&p ? [
@@ -48,12 +49,12 @@ export function locationNarrative(a: LocationAnalysis) {
     ] as const : [];
     const ages=groups.filter((item):item is readonly [string,number]=>typeof item[1]==='number').map(([label,n])=>`${label} ${pct(n,d.residentPopulation)}`).join(', ');
     const sex=sameYear&&p?.malePopulation!==undefined&&p.femalePopulation!==undefined ? `남성 ${pct(p.malePopulation,d.residentPopulation)}, 여성 ${pct(p.femalePopulation,d.residentPopulation)}입니다. ` : '';
-    sections.push({title:`환자층과 ${a.specialty} 수요`,text:`${d.areaName}의 거주인구는 ${fmt(d.residentPopulation)}명입니다. ${sex}${ages ? `주요 연령대는 ${ages}입니다. `:''}${distinctNotes(p?.specialtyFit||[],1)[0]||'목표 진료 대상의 연령대와 실제 방문 동선을 함께 비교해야 합니다.'}`,source:`SGIS ${d.year}년 · 행정동 전체 주민 기준. 연령 구간은 일부만 표시하며 실제 방문환자 비율은 아닙니다.`});
+    sections.push({title:`환자층과 ${a.specialty} 수요`,text:`${d.areaName}의 거주인구는 ${fmt(d.residentPopulation)}명입니다. ${sex}${ages ? `주요 연령대는 ${ages}입니다. `:''}${focus}`,source:`SGIS ${d.year}년 · 행정동 전체 주민 기준. 연령 구간은 일부만 표시하며 실제 방문환자 비율은 아닙니다.`});
     const ratio=d.workerPopulation/d.residentPopulation;
     sections.push({title:'거주 수요와 직장 수요의 균형',text:`거주인구 ${fmt(d.residentPopulation)}명에 비해 사업체 종사자는 ${fmt(d.workerPopulation)}명으로, 거주인구 규모의 약 ${ratio.toFixed(1)}배입니다. ${ratio>=1.5?'직장 수요의 규모가 커 평일 점심·퇴근 시간 진료와 건물 앞 동선을 특히 살펴볼 만합니다.':ratio<=.7?'주거 수요의 규모가 상대적으로 커 생활권 안에서 반복 방문할 환자층과 주말 진료 수요를 살펴볼 만합니다.':'주거와 직장 수요를 함께 고려하고 평일·주말의 진료시간을 비교할 만합니다.'} 두 집계는 서로 겹칠 수 있어 합쳐서 고유 환자 수나 인구 비율로 계산하지 않습니다.`,source:`SGIS ${d.year}년 · ${d.areaName} 주민·사업체 종사자 규모 비교`});
   }else sections.push({title:'환자층과 생활권',text:'현재 이 지역의 연령·성별·거주 및 종사자 자료가 충분하지 않습니다. 목표 환자층이 실제로 생활하고 이동하는 범위를 현장에서 확인해야 합니다.',source:'확보된 인구자료 범위에서만 해석합니다.'});
   const facilities=p ? [p.elementarySchools!==undefined?`초등학교 ${fmt(p.elementarySchools)}곳`:'',p.childcareFacilities!==undefined?`어린이집·유치원 ${fmt(p.childcareFacilities)}곳`:''].filter(Boolean).join(', ') : '';
-  sections.push({title:'주변 상권과 생활환경',text:`${p?.characterReason||'상권 유형은 주변 주거·업무시설과 실제 보행 동선을 함께 확인해야 합니다.'}${facilities?` 선택 반경 안에서 ${facilities}이 검색되었습니다. 학교·보육시설 수는 가족 생활권의 참고 신호이며 소아 진료 수요를 보장하지는 않습니다.`:''} 상가 업종 구성과 아파트 입주율이 확인되지 않은 경우 특정 상권이나 신도시·구도심으로 단정하지 않습니다.`,source:`지역 특성: SGIS · 시설: ${a.provider==='kakao'?'Kakao Local':'OpenStreetMap'} 장소검색 · 반경 ${fmt(a.radiusMeters)}m`});
+  sections.push({title:'주변 상권과 생활환경',text:`${p?.character?`확인된 인구와 시설 특성에서는 '${p.character}' 유형으로 해석됩니다.`:'상권 유형은 주변 주거·업무시설과 실제 보행 동선을 함께 확인해야 합니다.'}${facilities?` 선택 반경 안에서 ${facilities}이 검색되었습니다. 학교·보육시설 수는 가족 생활권의 참고 신호이며 소아 진료 수요를 보장하지는 않습니다.`:''} 상가 업종 구성과 아파트 입주율이 확인되지 않은 경우 특정 상권이나 신도시·구도심으로 단정하지 않습니다.`,source:`지역 특성: SGIS · 시설: ${a.provider==='kakao'?'Kakao Local':'OpenStreetMap'} 장소검색 · 반경 ${fmt(a.radiusMeters)}m`});
   const competition=a.metrics.find(m=>m.label==='경쟁환경');
   const consumer=a.consumerPower;
   const consumerText=consumer?.status==='available'&&consumer.percentile!==undefined?`지역 소비총액은 서울 행정동 비교에서 ${consumer.percentile}백분위입니다. 소비총액이 큰 지역이라도 개별 환자의 지불 여력이나 병원 객단가와 같지는 않습니다. `:'';
