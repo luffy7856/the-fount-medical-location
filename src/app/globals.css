@@ -164,6 +164,8 @@
 @media(max-width:470px){.saved-analysis-list article>button:first-child{grid-template-columns:20px minmax(0,1fr) 30px 12px;padding:10px 8px}.saved-analysis-list article small{font-size:8px}}
 
 /* Trust-first result hierarchy */
+.result-reasons{margin:14px 0;padding:16px;background:#f3f8f7;border:1px solid #dce8e5;border-radius:10px}.result-reasons>b{font-size:15px}.result-reasons ol{padding-left:21px;margin:10px 0 0}.result-reasons li{font-size:15px;line-height:1.75;margin:8px 0}
+.operating-result article,.contract-checks article{padding:17px 0;border-bottom:1px solid var(--line)}.operating-result article>div{display:flex;align-items:center;justify-content:space-between;gap:10px}.operating-result h4,.contract-checks h4{margin:0;font-size:17px;line-height:1.5}.operating-result article b{font-size:14px;color:var(--teal);flex-shrink:0}.operating-result p,.contract-checks p{margin:9px 0;font-size:15px;line-height:1.85;color:#38505c}.contract-checks small{display:block;padding:10px 12px;background:#f5f8fa;border-radius:7px;font-size:14px;line-height:1.7;color:#44636b}.contract-checks h4>span{margin-right:9px;color:var(--teal);font-size:14px}
 /* Keep essential analysis controls visible without opening mobile filters. */
 @media(max-width:800px){
   .filter-bar.live-filter,.filter-bar.live-filter.mobile-open{position:sticky;inset:auto;top:58px;height:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px;overflow:visible;z-index:1001}

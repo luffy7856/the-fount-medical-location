@@ -4,9 +4,10 @@ import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, PDFPage, PDFFont, PDFHexString, PageSizes, rgb } from 'pdf-lib';
 import type { LocationAnalysis, LivePlace, GrowthForecastPoint } from '../data/location-types';
 import { matchesSpecialty } from '../data/specialties';
+import { locationResult } from '../data/location-result';
 import { calculateOpeningPlan, calculateFiveYearPlan, type OpeningInputs } from '../data/opening-plan';
 
-export const REPORT_VERSION = '2026.09.13-r8';
+export const REPORT_VERSION = '2026.09.14-r9';
 const W=PageSizes.A4[0], H=PageSizes.A4[1], M=42, WIDTH=W-M*2, BOTTOM=58;
 const NAVY=rgb(.06,.14,.24), TEAL=rgb(.02,.43,.39), GOLD=rgb(.52,.39,.19);
 const INK=rgb(.14,.21,.29), MUTED=rgb(.34,.40,.47), LINE=rgb(.84,.88,.92);
@@ -148,7 +149,8 @@ const brief=(s:string,max=135)=>{const text=clean(s);return text.length>max?text
 export const MAX_REPORT_COMPETITORS=10;
 export function briefCompetitors(a:LocationAnalysis){return reportCompetitors(a).filter(p=>p.distanceMeters<=a.radiusMeters).slice(0,MAX_REPORT_COMPETITORS);}
 function locationBrief(r:Report,a:LocationAnalysis){
-  r.pageStart('01. 입지 분석 · 핵심 요약');
+  r.pageStart('01. 이 입지, 우리 병원에 맞을까요?');
+  const result=locationResult(a);
   r.paragraph(brief(a.location.displayName,75),{size:15,bold:true});
   const d=a.demographics,known=a.metrics.filter(m=>m.value!==null).length;
   r.cards([
@@ -156,17 +158,15 @@ function locationBrief(r:Report,a:LocationAnalysis){
     ['직장인구',d?fmt(d.workerPopulation)+'명':'확인 전','사업체 종사자 기준'],
     ['참고 입지점수',known>=4?a.observedScore+'/100':'판단 유보',known+'/6개 항목 반영 · 성공확률 아님']
   ]);
-  r.callout('이 지역을 보는 핵심',brief(a.regionalProfile?.characterReason||a.insight,150));
+  r.callout(result.label,result.text);
+  r.paragraph('이렇게 판단한 핵심 이유',{size:13,bold:true,gap:8});
+  (result.reasons.length?result.reasons:['분석 자료가 확보된 뒤 지역의 강점과 부담을 판단할 수 있습니다.']).forEach(s=>r.bullet(brief(s,130)));
   r.table(['평가항목','점수','평가항목','점수'],[175,80,175,WIDTH-430],
     [0,2,4].map(k=>({cells:[a.metrics[k]?.label||'항목 없음',a.metrics[k]?.value==null?'미산정':fmt(a.metrics[k].value!),a.metrics[k+1]?.label||'항목 없음',a.metrics[k+1]?.value==null?'미산정':fmt(a.metrics[k+1].value!)]})),10,10);
-  r.bullet('강점 · '+brief(a.strengths[0]||'자료가 충분하지 않아 강점을 단정하지 않았습니다.',100));
-  r.bullet('주의 · '+brief(a.risks[0]||'주차·간판 노출·임대조건을 현장에서 확인하세요.',100));
-  const p=a.regionalProfile;
-  if(p)r.paragraph('환자층 확인 · '+brief(p.specialtyFit[0]||p.doctorChecks[0]||'실제 진료 수요를 현장에서 확인하세요.',105),{size:10,color:TEAL});
   r.paragraph('자료: '+(d?'SGIS '+d.year+'년 / '+d.areaName+' 전체. 반경 내 인구와 다릅니다.':'인구자료 미확보.')+' 장소검색: '+date(a.analyzedAt)+'. 확인되지 않은 항목은 0점이 아닙니다.',{size:9,color:MUTED,gap:0});
 }
 function locationDetail(r:Report,a:LocationAnalysis){
-  r.pageStart('01. 입지 분석 · 환자층과 판단 근거');
+  r.pageStart('01. 이 지역에는 어떤 환자가 있나요?');
   const d=a.demographics,p=a.regionalProfile;
   const sameYear=!!d&&!!p&&d.year===p.year;
   const share=(value:number|undefined)=>positive(value)&&sameYear&&d!.residentPopulation>0?(value/d!.residentPopulation*100).toFixed(1)+'%':'확인 전';
@@ -183,20 +183,15 @@ function locationDetail(r:Report,a:LocationAnalysis){
   r.table(['초등학교','어린이집·유치원','주차시설'],[WIDTH/3,WIDTH/3,WIDTH/3],[{cells:[facilities(p?.elementarySchools),facilities(p?.childcareFacilities),a.analyzedAt&&a.analyzedAt!==new Date(0).toISOString()?facilities(a.counts.parking):'확인 전']}],10,8);
   r.paragraph('선택 반경의 공개 장소검색 기준입니다. 학교 수가 많다고 소아 진료 수요가 보장되지는 않으며, 주차시설 수는 입주 건물의 주차 가능 대수가 아닙니다.',{size:9,color:MUTED,gap:10});
   r.paragraph(a.specialty+' 개원 관점에서 읽기',{size:14,bold:true,gap:8});
-  const fit=p?.specialtyFit?.filter(Boolean)||[];
+  const fit=locationResult(a).patientNotes;
   r.paragraph(brief(fit[0]||'목표 환자의 연령대와 생활시간, 실제 이동 경로를 대조하세요. 현재 자료만으로 특정 진료과의 성공을 단정하지 않습니다.',150),{size:10.5,color:TEAL,gap:9});
   if(fit[1])r.paragraph(brief(fit[1],100),{size:10,gap:9});
-  r.paragraph('계약 전, 현장에서 확인할 두 가지',{size:14,bold:true,gap:8});
-  const checks=[...(p?.doctorChecks||[]).filter(s=>!fit.some(f=>clean(f)===clean(s))),
-    '목표 환자층이 건물 앞을 지나는 시간대와 엘리베이터·주차 접근성을 확인하세요.',
-    '경쟁병원의 세부 진료, 운영시간과 대기 수준을 직접 비교하세요.'
-  ];
-  checks.slice(0,2).forEach((s,k)=>r.paragraph((k+1)+'. '+brief(s,100),{size:10,gap:7}));
+  if(p)r.paragraph('지역 유형 · '+p.character,{size:11,bold:true,gap:10});
   r.paragraph('인구: SGIS '+(p?.year||d?.year||'기준연도 확인 전')+'년 / '+brief(p?.areaName||d?.areaName||'지역 자료 미확보',45)+'. 시설: '+(a.provider==='kakao'?'Kakao Local':'OpenStreetMap')+' / '+date(a.analyzedAt)+'. 신도시·구도심의 유불리는 실제 입주·개발 현황을 추가 확인해야 합니다.',{size:9,color:MUTED,gap:0});
 }
 function locationFactors(r:Report,a:LocationAnalysis){
-  r.pageStart('01. 입지 분석 · 점수의 실제 의미');
-  r.paragraph('점수보다 중요한 것은, 무엇을 근거로 평가했는가입니다.',{size:12,bold:true,gap:14});
+  r.pageStart('01. 환자 접근성과 운영 조건');
+  r.paragraph('환자가 오기 쉽고, 운영하기 좋은 자리인가요?',{size:12,bold:true,gap:14});
   const guidance:Record<string,string>={
     '잠재환자 수요':'생활인구는 실제 환자 수가 아닙니다. 목표 연령층이 진료시간에 이 건물까지 오는지 확인해야 합니다.',
     '경쟁환경':'경쟁 점수가 낮다는 것은 경쟁 부담을 뜻합니다. 같은 과라도 세부 진료·가격대·운영시간이 겹치는지 비교하세요.',
@@ -205,7 +200,7 @@ function locationFactors(r:Report,a:LocationAnalysis){
     '비용효율':'지역 공표 임대료와 개별 호실의 견적은 다릅니다. 입주 층·면적·관리비·보증금까지 대조하세요.',
     '성장성':'과거 지역 추세를 바탕으로 한 참고값입니다. 신규 입주나 개발사업이 확정·반영되었다는 뜻은 아닙니다.'
   };
-  for(const m of a.metrics.slice(0,6)){
+  for(const m of locationResult(a).operatingMetrics){
     r.ensure(90);
     r.paragraph(m.label+'  '+(m.value===null?'미산정':fmt(m.value)+' / 100'),{size:12,bold:true,color:NAVY,gap:5});
     r.paragraph('확인 근거 · '+brief(m.note,220),{size:10,color:TEAL,gap:4});
@@ -214,24 +209,14 @@ function locationFactors(r:Report,a:LocationAnalysis){
   r.paragraph('점수는 후보지 비교용이며 성공확률·매출 예측이 아닙니다. 행정동·상권 단위 자료와 선택 반경의 장소검색 결과가 함께 사용됩니다.',{size:9,color:MUTED,gap:0});
 }
 function locationDecision(r:Report,a:LocationAnalysis){
-  r.pageStart('01. 입지 분석 · 개원 판단과 현장 검토');
-  r.callout(brief(a.regionalProfile?.character||'지역 특성 확인',35),brief(a.regionalProfile?.characterReason||a.insight||'현재 확인된 자료만으로 계약 여부를 결정하지 마세요.',150));
-  r.paragraph('검토할 만한 기회',{size:14,bold:true,gap:8});
-  const strengths=a.strengths.filter(s=>!s.includes(a.regionalProfile?.characterReason||'__none__'));
-  (strengths.length?strengths.slice(0,2):['확인된 강점이 충분하지 않습니다. 목표 환자층과 실제 생활 동선부터 확인하세요.']).forEach(s=>r.bullet(brief(s,130)));
-  r.paragraph('계약 전에 풀어야 할 위험',{size:14,bold:true,gap:8});
-  (a.risks.length?a.risks.slice(0,3):['실제 임대조건, 경쟁병원 진료내용, 건물 접근성은 현장 확인이 필요합니다.']).forEach(s=>r.bullet(brief(s,120)));
-  r.paragraph('현장에서는 이렇게 확인하세요',{size:14,bold:true,gap:8});
-  const fit=a.regionalProfile?.specialtyFit||[];
-  const checks=(a.regionalProfile?.doctorChecks||[]).filter(s=>!fit.some(f=>clean(f)===clean(s)));
-  const tasks=checks.length?checks.slice(0,3):[
-    '평일 점심·퇴근 시간과 주말에 후보지 앞 보행량과 환자층을 비교하세요.',
-    '같은 진료과 병원의 세부 진료·운영시간·대기 수준을 확인하세요.',
-    '층별 가시성·엘리베이터·주차·실제 임대 견적을 확인하세요.'
-  ];
-  tasks.forEach((s,k)=>r.paragraph((k+1)+'. '+brief(s,130),{size:10.5,gap:9}));
-  r.callout('다음 결정: 숫자와 현장 조건을 함께 비교하세요.','목표 환자층, 진료 차별점, 월 고정비가 모두 맞는지 확인하세요. 불확실한 항목이 크다면 다른 후보지 한두 곳과 비교한 뒤 계약 여부를 결정하세요.',WARM);
-  r.paragraph('신도시는 실제 입주율·상가 공실·의료수요 정착 속도, 구도심은 기존 환자 관계·건물 노후·주차를 추가 확인하세요. 현재 자료만으로 신도시·구도심을 단정하거나 매출을 보장하지 않습니다.',{size:9,color:MUTED,gap:0});
+  r.pageStart('01. 계약 전에 무엇을 확인해야 하나요?');
+  r.paragraph('확인할 행동과, 그 결과가 개원 결정에 주는 의미를 정리했습니다.',{size:11,color:MUTED});
+  locationResult(a).checks.forEach((check,k)=>{
+    r.paragraph((k+1)+'. '+check.title,{size:13,bold:true,gap:7});
+    r.paragraph(check.action,{size:11,gap:6});
+    r.paragraph('판단에 활용 · '+check.decision,{size:10,color:TEAL,gap:19});
+  });
+  r.callout('현장 확인 결과를 수익성 분석에 입력하세요.','실제 임대조건과 환자 수 가정을 반영해 손익분기점과 회수기간을 확인하고, 다른 후보지와 같은 조건으로 비교하세요.',WARM);
 }
 function forecastBrief(r:Report,a:LocationAnalysis){
   r.pageStart('02. 앞으로 3년의 전망');
