@@ -13,7 +13,7 @@ import type { AiInsightItem, AiInterpretation, LivingPopulation, LocationAnalysi
 import { analysisStorageId, loadSavedAnalyses, mergeSavedAnalysis, storeSavedAnalyses } from "@/data/saved-analyses";
 import { DEFAULT_OPENING_INPUTS, normalizeOpeningInputs, type OpeningInputs } from "@/data/opening-plan";
 import { FinancialPlanningPanel } from "./financial-planning-panel";
-import { locationResult } from "@/data/location-result";
+import { locationResult, locationNarrative } from "@/data/location-result";
 
 const LiveMap = dynamic(() => import("./live-map"), { ssr: false, loading: () => <div className="map-loading"><Activity className="spin" /> 지도를 불러오는 중</div> });
 
@@ -149,7 +149,6 @@ function RegionalProfileBlock({ analysis }: { analysis: LocationAnalysis }) {
     <article className="region-character"><span>{profile.areaName} · {profile.year}년</span><h3>{profile.character}</h3></article>
     <div className="regional-facts">{facts.map(([label, value]) => <div key={label}><span>{label}</span><b>{value}</b></div>)}</div>
     <p className="score-disclaimer">인구 비율: {profile.year}년 {profile.areaName} 전체 주민 기준 · 시설 수: 선택 반경 {analysis.radiusMeters.toLocaleString()}m 내 검색 결과. 연령 구간은 주요 환자층을 보여주며 합계가 100%인 구분표는 아닙니다.</p>
-    {result.patientNotes.length > 0 && <div className="specialty-fit"><b>이 환자층이 {analysis.specialty} 수요에 주는 의미</b>{result.patientNotes.map(item => <p key={item}>{item}</p>)}</div>}
   </section>;
 }
 
@@ -157,8 +156,10 @@ function OperatingResult({ analysis }: { analysis: LocationAnalysis }) {
   const result = locationResult(analysis);
   return <>
     <section className="panel-section operating-result"><div className="panel-title"><div><span>03 · OPERATING CONDITIONS</span><h3>환자가 오기 쉽고, 운영하기 좋은 자리인가요?</h3></div></div>
-      {result.operatingMetrics.map(metric => <article key={metric.label}><div><h4>{metric.label}</h4><b>{metric.value === null ? '자료 확인 후 판단' : metric.value === 0 && metric.label === '경쟁환경' ? '경쟁 부담 큼' : `${metric.value}점`}</b></div><p>{metric.note}</p></article>)}
+      <MetricBars metrics={analysis.metrics} />
+      <details className="evidence-details"><summary>항목별 데이터 근거 보기</summary>{analysis.metrics.filter(metric=>metric.value!==null).map(metric=><p className="factor-source" key={metric.label}><b>{metric.label}</b> · {metric.note}</p>)}</details>
     </section>
+    <section className="panel-section location-narrative"><div className="panel-title"><div><span>LOCATION IN CONTEXT</span><h3>{analysis.specialty} 개원 관점의 종합 입지 해석</h3></div></div><p className="narrative-intro">숫자가 진료 수요와 병원 운영에 어떤 의미인지, 여러 관점에서 연결해 봅니다.</p>{locationNarrative(analysis).map(section=><article key={section.title}><h4>{section.title}</h4><p>{section.text}</p><small>{section.source}</small></article>)}</section>
     <section className="panel-section contract-checks"><div className="panel-title"><div><span>04 · BEFORE YOU SIGN</span><h3>계약 전에 무엇을 확인해야 하나요?</h3></div></div>
       {result.checks.map((check, index) => <article key={check.title}><h4><span>{String(index + 1).padStart(2, '0')}</span>{check.title}</h4><p>{check.action}</p><small>{check.decision}</small></article>)}
     </section>
