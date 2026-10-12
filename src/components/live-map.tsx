@@ -3,7 +3,7 @@
 import { Circle, CircleMarker, MapContainer, Marker, Popup, Rectangle, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { divIcon } from "leaflet";
 import type { LocationAnalysis, LivePlace } from "@/data/location-types";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 const COLORS = { hospital: "#e55e48", pharmacy: "#3182ce", transit: "#0f937d", parking: "#805ad5" };
 const POPULATION_COLORS = [
@@ -103,6 +103,29 @@ function MapClick({ onSelect }: { onSelect: (latitude: number, longitude: number
   return null;
 }
 
+function MapAnalysisConfirmContent({ onCancel, onConfirm }: {
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const map = useMap();
+  return <div className="map-analysis-confirm">
+    <strong>이 지역을 분석하시겠습니까?</strong>
+    <span>선택한 지점을 중심으로 주변 데이터를 새로 확인합니다.</span>
+    <div><button type="button" onClick={() => { map.closePopup(); onCancel(); }}>취소</button><button type="button" onClick={() => { map.closePopup(); onConfirm(); }}>이 지역 분석하기</button></div>
+  </div>;
+}
+
+function MapSelectionConfirmation({ latitude, longitude, onCancel, onConfirm }: {
+  latitude: number;
+  longitude: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return <Popup position={[latitude, longitude]} eventHandlers={{ remove: onCancel }}>
+    <MapAnalysisConfirmContent onCancel={onCancel} onConfirm={onConfirm} />
+  </Popup>;
+}
+
 function AnalyzePopupLocation({ latitude, longitude, onSelect, label = "이 위치 분석하기" }: {
   latitude: number;
   longitude: number;
@@ -126,22 +149,30 @@ export default function LiveMap({ analysis, activeKinds, populationActive, selec
   onSelectCoordinate: (latitude: number, longitude: number) => void;
 }) {
   const { latitude, longitude } = analysis.location;
+  const [pendingCoordinate, setPendingCoordinate] = useState<{ latitude: number; longitude: number } | null>(null);
   const livingPopulation = analysis.livingPopulation;
   const densityCells = populationGrid(analysis);
+  useEffect(() => { setPendingCoordinate(null); }, [latitude, longitude]);
   return <MapContainer center={[latitude, longitude]} zoom={15} className="leaflet-live-map" zoomControl={false} preferCanvas>
     <TileLayer
       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       url={process.env.NEXT_PUBLIC_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
     />
     <MapUpdater latitude={latitude} longitude={longitude} radius={analysis.radiusMeters} />
-    <MapClick onSelect={onSelectCoordinate} />
+    <MapClick onSelect={(nextLatitude, nextLongitude) => setPendingCoordinate({ latitude: nextLatitude, longitude: nextLongitude })} />
+    {pendingCoordinate && <MapSelectionConfirmation
+      latitude={pendingCoordinate.latitude}
+      longitude={pendingCoordinate.longitude}
+      onCancel={() => setPendingCoordinate(null)}
+      onConfirm={() => onSelectCoordinate(pendingCoordinate.latitude, pendingCoordinate.longitude)}
+    />}
     {populationActive && livingPopulation?.status === "available" && densityCells.map(cell => <Rectangle
       key={`${cell.row}-${cell.column}`}
       bounds={cell.bounds}
       interactive
       bubblingMouseEvents={false}
       pathOptions={{ color: cell.category.color, fillColor: cell.category.color, fillOpacity: .27, weight: .7 }}
-    ><Popup><strong>{cell.actual ? "250m 격자 실제 생활인구" : "생활인구 공간분포 추정"}</strong><br />{cell.actual ? <><b>{cell.population?.toLocaleString()}명</b> · {cell.category.label}</> : <>밀도지수 <b>{cell.score}/100</b> · {cell.category.label}</>}<br />{livingPopulation.referenceDate} {String(livingPopulation.hour).padStart(2, "0")}시<br />{cell.actual ? `격자 ${cell.row}` : `행정동 실제 생활인구 ${livingPopulation.total?.toLocaleString()}명`}<br /><small>{cell.actual ? "서울특별시 250m 격자 원자료" : "주변 지하철·약국·의료기관 접근성으로 공간 배분한 추정지수"}</small><AnalyzePopupLocation latitude={cell.centerLatitude} longitude={cell.centerLongitude} onSelect={onSelectCoordinate} label="이 격자 중심으로 분석하기" /></Popup></Rectangle>)}
+    ><Popup><MapAnalysisConfirmContent onCancel={() => undefined} onConfirm={() => onSelectCoordinate(cell.centerLatitude, cell.centerLongitude)} /></Popup></Rectangle>)}
     <Circle center={[latitude, longitude]} radius={analysis.radiusMeters} pathOptions={{ color: "#0f937d", fillColor: "#38b2ac", fillOpacity: .08, weight: 2, dashArray: "6 7" }} />
     <Marker position={[latitude, longitude]} icon={ANALYSIS_LOCATION_ICON} alt="분석 지점" zIndexOffset={1000} bubblingMouseEvents={false}>
       <Popup><b>분석 지점</b><br />{analysis.location.displayName}</Popup>

@@ -1,0 +1,35 @@
+const { chromium } = require('C:/Users/luffy/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const assert = require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
+ const page=await browser.newPage({viewport:{width:1440,height:1000}}); const errors=[];
+ page.on('pageerror',error=>errors.push(error.message));
+ await page.goto('http://localhost:3077/preview/viability',{waitUntil:'networkidle',timeout:120000});
+ await page.getByRole('button',{name:'환자층이 적은 지역',exact:true}).click();
+ assert((await page.locator('.viability-combined-summary').innerText()).includes('운영비'));
+ await page.getByRole('button',{name:'연령 자료가 없는 지역',exact:true}).click();
+ assert(await page.getByRole('heading',{name:'환자 규모를 더 확인한 뒤 판단하겠습니다'}).isVisible());
+ await page.getByRole('button',{name:'기본 후보지',exact:true}).click();
+ await page.getByText('컨설턴트 의견·실제 개원 결과 기록하기 →').scrollIntoViewIfNeeded();
+ assert(await page.evaluate(()=>window.scrollY>0),'preview must scroll');
+ await page.evaluate(()=>window.scrollTo(0,0));
+ await page.screenshot({path:'output/clinical-preview-desktop.png',fullPage:true});
+ for(const width of [320,390,430]){await page.setViewportSize({width,height:844});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),`overflow ${width}`);}
+ await page.screenshot({path:'output/clinical-preview-mobile.png',fullPage:true});
+ await page.goto('http://localhost:3077/preview/model-review',{waitUntil:'networkidle'});
+ await page.getByLabel('사례 이름',{exact:true}).fill('자동 검증 예시');
+ await page.getByLabel('후보지 주소',{exact:true}).fill('서울 예시 주소');
+ await page.getByRole('button',{name:'이 브라우저에 검토 기록 저장'}).click();
+ assert((await page.locator('[role=status]').innerText()).includes('저장했습니다'));
+ await page.reload({waitUntil:'networkidle'});
+ await page.getByRole('button',{name:'이 브라우저 기록 불러오기'}).click();
+ assert(await page.getByText('자동 검증 예시',{exact:true}).isVisible());
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+ await page.goto('http://localhost:3077/',{waitUntil:'domcontentloaded',timeout:120000});
+ await page.getByRole('button',{name:'이 주소 분석하기',exact:false}).waitFor({timeout:60000});
+ assert(!await page.locator('[data-nextjs-dialog]').count());
+ assert.equal(errors.length,0,errors.join('\n'));
+ console.log('PASS: main page, 4 scenarios, 320/390/430px, local review save/reload, no page errors');
+ await browser.close();
+})().catch(error=>{console.error(error);process.exit(1)});

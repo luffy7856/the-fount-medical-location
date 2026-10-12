@@ -34,7 +34,7 @@ export function buildInsightEvidence(analysis: LocationAnalysis): InsightEvidenc
   }
   if (analysis.growthForecast?.status === "available") {
     const last = analysis.growthForecast.projected.at(-1);
-    addFact(facts, "growth", "3년 통계 전망", last ? `${analysis.growthForecast.baseYear}년 이후 ${last.year}년 거주인구 ${last.residentPopulation.toLocaleString()}명 · 종사자 ${last.workerPopulation.toLocaleString()}명` : analysis.growthForecast.message, "SGIS 최근 3개년 선형 추세 외삽");
+    addFact(facts, "growth", "3년 통계 전망", last ? `${analysis.growthForecast.baseYear}년 이후 ${last.year}년 거주인구 ${last.residentPopulation.toLocaleString()}명 · 이 지역 직장인 ${last.workerPopulation.toLocaleString()}명` : analysis.growthForecast.message, "SGIS 최근 3개년 선형 추세 외삽");
   }
   if (analysis.developmentPlans?.status === "available") {
     addFact(facts, "development", "주변 개발계획", `${analysis.developmentPlans.plans.length.toLocaleString()}건 · 반경 ${analysis.developmentPlans.radiusMeters.toLocaleString()}m`, analysis.developmentPlans.source);

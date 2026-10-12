@@ -8,6 +8,23 @@ const MAX_BODY_BYTES = 160_000;
 const WINDOW_MS = 60_000;
 const REQUESTS_PER_WINDOW = 12;
 const requestWindows = new Map<string, { startedAt: number; count: number }>();
+type Language = "ko" | "en" | "ja";
+
+const evidenceNames: Record<Exclude<Language, "ko">, Record<string, string>> = {
+  en: { location: "Analysis area", score: "Location score", coverage: "Data coverage", medical: "Medical facilities", specialty: "Same-specialty facilities", pharmacy: "Pharmacies", transit: "Subway stations", parking: "Parking", resident: "Resident population", worker: "Workers", living: "Daytime population", consumer: "Spending power", rent: "Commercial rent", growth: "Three-year trend", development: "Development plans", region_character: "Area profile", sex_ratio: "Gender profile", age_profile: "Age profile", schools: "Children's facilities" },
+  ja: { location: "分析エリア", score: "立地スコア", coverage: "データ反映範囲", medical: "医療機関", specialty: "同じ診療科の医療機関", pharmacy: "薬局", transit: "地下鉄駅", parking: "駐車場", resident: "居住人口", worker: "就業者", living: "生活人口", consumer: "消費力", rent: "店舗賃料", growth: "3年間の動向", development: "開発計画", region_character: "地域の特徴", sex_ratio: "男女構成", age_profile: "年齢構成", schools: "子ども向け施設" }
+};
+
+function localizeEvidence(interpretation: AiInterpretation, language: Language) {
+  if (language === "ko") return interpretation;
+  return {
+    ...interpretation,
+    evidence: interpretation.evidence.map(fact => ({
+      ...fact,
+      label: evidenceNames[language][fact.id] || (fact.id.startsWith("metric_") ? language === "en" ? "Analysis indicator" : "分析指標" : fact.label)
+    }))
+  };
+}
 
 function isAnalysis(value: unknown): value is LocationAnalysis {
   if (!value || typeof value !== "object") return false;
@@ -64,8 +81,26 @@ function normalizeUserFacingText(text: string) {
     .trim();
 }
 
-function fallback(analysis: LocationAnalysis, status: AiInterpretation["status"], message: string) {
-  return Response.json(buildRuleInterpretation(analysis, status, message), {
+function fallback(analysis: LocationAnalysis, status: AiInterpretation["status"], message: string, language: Language) {
+  const interpretation = buildRuleInterpretation(analysis, status, message);
+  if (language !== "ko") {
+    const radius = analysis.radiusMeters.toLocaleString("en-US");
+    const matching = analysis.counts.matchingSpecialty.toLocaleString("en-US");
+    interpretation.summary = language === "en"
+      ? `The map search found ${matching} facilities listed for the selected specialty within ${radius} m of this site. This is a preliminary comparison, not a forecast of patient volume or clinic success. Check competing services, access and actual rent before deciding.`
+      : `この地点から半径${radius}m以内に、選択した診療科に関連する医療機関が${matching}件見つかりました。これは候補地の一次比較であり、患者数や開院の成功を予測するものではありません。競合の診療内容、アクセス、実際の賃料を確認してください。`;
+    interpretation.strengths = language === "en"
+      ? [{ text: "The analysis includes nearby medical-facility listings.", evidenceIds: ["medical"] }, { text: "The selected radius and specialty can be compared with other sites.", evidenceIds: ["location", "specialty"] }]
+      : [{ text: "周辺の医療機関情報を分析に含めています。", evidenceIds: ["medical"] }, { text: "選択した半径と診療科の条件で、ほかの候補地と比較できます。", evidenceIds: ["location", "specialty"] }];
+    interpretation.risks = language === "en"
+      ? [{ text: "Map listings do not prove a facility's current specialty or operating status.", evidenceIds: ["specialty"] }, { text: "Patient demand and actual leasing costs still need independent confirmation.", evidenceIds: ["coverage"] }]
+      : [{ text: "地図上の掲載情報だけでは、診療科や現在の営業状況を確定できません。", evidenceIds: ["specialty"] }, { text: "患者需要と実際の賃貸費用は別途確認が必要です。", evidenceIds: ["coverage"] }];
+    interpretation.nextChecks = language === "en"
+      ? [{ text: "Check the services and opening hours of nearby practices.", evidenceIds: ["specialty"] }, { text: "Visit the site to assess access, visibility and parking.", evidenceIds: ["location", "parking"] }, { text: "Compare the quoted rent and lease terms with another site.", evidenceIds: ["location"] }]
+      : [{ text: "周辺の医療機関の診療内容と営業時間を確認してください。", evidenceIds: ["specialty"] }, { text: "現地でアクセス、視認性、駐車場を確認してください。", evidenceIds: ["location", "parking"] }, { text: "提示された賃料と契約条件をほかの候補地と比較してください。", evidenceIds: ["location"] }];
+    interpretation.message = language === "en" ? "This interpretation uses only the available map and analysis data." : "利用可能な地図・分析データに基づく解釈です。";
+  }
+  return Response.json(localizeEvidence(interpretation, language), {
     headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" }
   });
 }
@@ -75,28 +110,30 @@ export async function POST(request: Request) {
   if (contentLength > MAX_BODY_BYTES) return Response.json({ error: "분석 데이터가 너무 큽니다." }, { status: 413 });
 
   let analysis: LocationAnalysis;
+  let language: Language = "ko";
   try {
-    const body = await request.json() as { analysis?: unknown };
+    const body = await request.json() as { analysis?: unknown; language?: unknown };
     if (!isAnalysis(body.analysis)) return Response.json({ error: "유효한 입지분석 결과가 필요합니다." }, { status: 400 });
     analysis = body.analysis;
+    language = body.language === "en" || body.language === "ja" ? body.language : "ko";
   } catch {
     return Response.json({ error: "요청 형식을 확인해주세요." }, { status: 400 });
   }
 
   if (isRateLimited(clientKey(request))) {
-    return fallback(analysis, "rules", "AI 요청 보호 한도에 도달해 동일 근거의 규칙 기반 해석을 표시합니다.");
+    return fallback(analysis, "rules", "AI 요청 보호 한도에 도달해 동일 근거의 규칙 기반 해석을 표시합니다.", language);
   }
 
   const canUseGateway = Boolean(process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
   if (!canUseGateway) {
-    return fallback(analysis, "not_configured", "AI Gateway 연결 전에는 동일 데이터의 규칙 기반 해석을 표시합니다.");
+    return fallback(analysis, "not_configured", "AI Gateway 연결 전에는 동일 데이터의 규칙 기반 해석을 표시합니다.", language);
   }
 
   const evidence = buildInsightEvidence(analysis);
   const allowedIds = new Set(evidence.map(item => item.id));
   const evidenceIdSchema = z.enum(evidence.map(item => item.id) as [string, ...string[]]);
   const generatedItemSchema = z.object({
-    text: z.string().min(12).max(180).describe("제공된 근거만 해석한 한국어 한 문장"),
+    text: z.string().min(12).max(180).describe("One sentence in the requested language, interpreting only the provided evidence"),
     evidenceIds: z.array(evidenceIdSchema).min(1).max(3).describe("문장을 직접 뒷받침하는 허용된 근거 ID")
   });
   const generatedInsightSchema = z.object({
@@ -124,7 +161,9 @@ export async function POST(request: Request) {
         "summary는 데이터 용어를 나열하지 말고, 이 지역이 업무지·가족 주거지·성숙 주거지·개발 확장지 중 어떤 성향인지와 선택 진료과에 어떤 의미인지 쉬운 말로 설명하십시오.",
         "nextChecks에는 개발자나 데이터 연결 담당자가 할 일을 쓰지 말고, 원장님이 현장답사와 개원 판단에서 직접 확인할 환자 연령대·성별·학교와 아파트 동선·경쟁병원 진료내용·건물 가시성·주차·임대조건만 쓰십시오.",
         "'잘된다', '성공한다'고 단정하지 말고 '유리한 신호', '추가 비교가 필요함'처럼 판단을 돕는 표현을 사용하십시오.",
-        "한국어로 짧고 명료하게 작성하고 투자·임대차 계약을 단정적으로 권고하지 마십시오."
+        language === "en" ? "Write the user-facing summary and all item text in natural English. Do not make definitive investment or lease recommendations."
+          : language === "ja" ? "利用者向けの要約と各項目の文は自然な日本語で書き、投資や賃貸契約を断定的に勧めないでください。"
+            : "한국어로 짧고 명료하게 작성하고 투자·임대차 계약을 단정적으로 권고하지 마십시오."
       ].join("\n"),
       prompt: JSON.stringify({ evidence, missingData: missing, limitations: analysis.limitations.slice(0, 8) }),
       maxOutputTokens: 1000,
@@ -136,7 +175,7 @@ export async function POST(request: Request) {
       || !verifyItems(output.strengths, allowedIds)
       || !verifyItems(output.risks, allowedIds)
       || !verifyItems(output.nextChecks, allowedIds)) {
-      return fallback(analysis, "error", "AI 근거 검증에 실패해 동일 데이터의 규칙 기반 해석을 표시합니다.");
+      return fallback(analysis, "error", "AI 근거 검증에 실패해 동일 데이터의 규칙 기반 해석을 표시합니다.", language);
     }
     const interpretation: AiInterpretation = {
       status: "generated",
@@ -151,7 +190,8 @@ export async function POST(request: Request) {
       generatedAt: new Date().toISOString(),
       message: "화면에 표시된 공개 데이터만 근거로 AI가 해석했습니다."
     };
-    return Response.json(interpretation, {
+    if (language !== "ko") interpretation.message = language === "en" ? "AI interpretation based only on the public data shown here." : "画面に表示された公開データのみに基づくAI解釈です。";
+    return Response.json(localizeEvidence(interpretation, language), {
       headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" }
     });
   } catch (error) {
@@ -168,7 +208,8 @@ export async function POST(request: Request) {
       configurationIssue ? "not_configured" : "error",
       configurationIssue
         ? "AI Gateway 사용 설정을 확인하는 동안 동일 데이터의 규칙 기반 해석을 표시합니다."
-        : "AI 연결이 일시적으로 불안정해 동일 데이터의 규칙 기반 해석을 표시합니다."
+        : "AI 연결이 일시적으로 불안정해 동일 데이터의 규칙 기반 해석을 표시합니다.",
+      language
     );
   }
 }

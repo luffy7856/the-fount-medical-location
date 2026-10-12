@@ -39,7 +39,8 @@ function validPayload(value: unknown): value is ReportPayload {
     && finite(inputs.monthlyPayrollManwon, 0, 1000000)
     && finite(inputs.monthlyMarketingManwon, 0, 1000000)
     && (Object.keys(INPUT_LIMITS) as (keyof OpeningInputs)[]).every(key=>finite(inputs[key],...INPUT_LIMITS[key]))
-    && Number.isInteger(inputs.loanMonths) && Number.isInteger(inputs.rampMonths);
+    && Number.isInteger(inputs.loanMonths) && Number.isInteger(inputs.rampMonths)
+    && Number.isInteger(inputs.staffCount) && (inputs.autoOperatingCosts === 0 || inputs.autoOperatingCosts === 1);
 }
 
 

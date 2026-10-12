@@ -2,7 +2,7 @@ import type { GrowthForecast } from "@/data/location-types";
 
 const series = [
   { key: "residentPopulation", label: "거주인구", unit: "명", color: "#087f78" },
-  { key: "workerPopulation", label: "종사자", unit: "명", color: "#287ac1" },
+  { key: "workerPopulation", label: "이 지역 직장인", unit: "명", color: "#287ac1" },
   { key: "businesses", label: "사업체", unit: "개", color: "#8054b5" },
 ] as const;
 

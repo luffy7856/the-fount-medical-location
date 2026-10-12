@@ -2,18 +2,20 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
+import "./fount-brand.css";
+import "./fount-upgrade.css";
 
 const title = "병원 입지분석 | AI 병원 상권분석 | THE FOUNT";
 const description =
-  "병원 개원 예정지를 입력하면 실제 공개 지도 데이터를 조회해 주변 의료기관, 약국, 대중교통, 주차시설과 진료과별 경쟁환경을 확인할 수 있습니다.";
+  "주소와 진료과를 입력하면 유동인구, 경쟁병원, 접근성, 소비력, 성장성과 개원 수익성을 분석하는 더파운트 병원 입지분석 서비스입니다.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://the-fount-medical-location.vercel.app"),
+  metadataBase: new URL("https://www.thefount.co.kr"),
   title,
   description,
-  alternates: { canonical: "/" },
+  alternates: { canonical: "/location" },
   keywords: [
-    "병원 입지분석", "병원 상권분석", "병원 개원", "개원 입지", "병원 개원 컨설팅",
+    "더파운트 입지분석", "병원 입지분석", "병원 상권분석", "병원 개원", "개원 입지", "병원 개원 컨설팅",
     "개원 예정지 분석", "병원 유동인구", "병원 경쟁분석", "병원 개원 타당성",
     "피부과 입지", "정형외과 입지", "내과 입지", "소아과 입지", "병원 개원 비용"
   ],
@@ -23,10 +25,10 @@ export const metadata: Metadata = {
     type: "website",
     locale: "ko_KR",
     siteName: "THE FOUNT Clinic Location Lab",
-    url: "/",
+    url: "/location",
     images: [
       {
-        url: "/the-fount-medical-location-og.png",
+        url: "/location/the-fount-medical-location-og.png",
         width: 1740,
         height: 907,
         alt: "도시 지도와 의료 데이터로 병원 개원 후보지를 분석하는 THE FOUNT Clinic Location Lab"
@@ -37,9 +39,19 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title,
     description,
-    images: ["/the-fount-medical-location-og.png"]
+    images: ["/location/the-fount-medical-location-og.png"]
   },
-  robots: { index: true, follow: true }
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1 }
+  },
+  verification: {
+    google: "nRJqHwegymSY3Kz9qBkiObdmdWg4qjIMv4DC6wANwXE",
+    other: {
+      "naver-site-verification": "5d36589e0005e1b46ae8ef117e2ad741344cc0e0"
+    }
+  }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -47,6 +59,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="ko">
       <body>
         {children}
+        <footer className="fount-global-footer"><div><b>THE FOUNT</b><small>MEDICAL PROJECT OFFICE</small></div><nav aria-label="더파운트 공통 링크"><a href="https://www.thefount.co.kr/about">회사소개</a><a href="https://www.thefount.co.kr/insight">Insight</a><a href="https://www.thefount.co.kr/location">입지분석</a><a href="https://www.thefount.co.kr/doctor-finance">Doctor Finance</a><a href="https://www.thefount.co.kr/invest">Investment</a><a href="https://www.thefount.co.kr/privacy">개인정보처리방침</a><a href="https://www.thefount.co.kr/contact">문의</a></nav><span>© 2026 THE FOUNT.</span></footer>
         <Script id="microsoft-clarity" strategy="afterInteractive">
           {`(function(c,l,a,r,i,t,y){
             c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
@@ -54,6 +67,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
           })(window, document, "clarity", "script", "yhfxpuy3dj");`}
         </Script>
+        <Script src="/location/fount-language.js?v=20261004f" data-common="true" strategy="afterInteractive" />
       </body>
     </html>
   );

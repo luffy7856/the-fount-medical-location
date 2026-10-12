@@ -1,7 +1,7 @@
 import type { LocationAnalysis } from './location-types';
 export const DEFAULT_OPENING_INPUTS = {
-  floor:3, areaPyeong:50, depositManwon:10000, monthlyRentManwon:700,
-  openingBudgetManwon:50000, monthlyPayrollManwon:2500, monthlyMarketingManwon:500,
+  floor:3, areaPyeong:50, staffCount:5, autoOperatingCosts:1, depositManwon:10000, monthlyRentManwon:700,
+  monthlyManagementManwon:100, openingBudgetManwon:50000, monthlyPayrollManwon:2500, monthlyMarketingManwon:500,
   dailyPatients:45, revenuePerPatient:8, clinicDays:24, variablePercent:20,
   monthlyOtherCost:400, loanAmount:30000, annualInterest:5, loanMonths:60,
   ownerWithdrawal:500, taxReserve:0, initialPercent:50, rampMonths:6,
@@ -9,7 +9,7 @@ export const DEFAULT_OPENING_INPUTS = {
 };
 export type OpeningInputs = typeof DEFAULT_OPENING_INPUTS;
 export const INPUT_LIMITS: Record<keyof OpeningInputs,[number,number]> = {
-  floor:[-5,200],areaPyeong:[1,5000],depositManwon:[0,10000000],monthlyRentManwon:[0,1000000],
+  floor:[-5,200],areaPyeong:[1,5000],staffCount:[0,500],autoOperatingCosts:[0,1],depositManwon:[0,10000000],monthlyRentManwon:[0,1000000],monthlyManagementManwon:[0,1000000],
   openingBudgetManwon:[0,10000000],monthlyPayrollManwon:[0,1000000],monthlyMarketingManwon:[0,1000000],
   dailyPatients:[0,5000],revenuePerPatient:[0,10000],clinicDays:[1,31],variablePercent:[0,100],
   monthlyOtherCost:[0,1000000],loanAmount:[0,10000000],annualInterest:[0,100],loanMonths:[1,600],
@@ -22,7 +22,7 @@ export function normalizeOpeningInputs(raw:Partial<OpeningInputs>):OpeningInputs
     const value=raw[key];const [min,max]=INPUT_LIMITS[key];
     result[key]=typeof value==='number'&&Number.isFinite(value)?Math.min(max,Math.max(min,value)):result[key];
   }
-  result.loanMonths=Math.round(result.loanMonths);result.rampMonths=Math.round(result.rampMonths);
+  result.loanMonths=Math.round(result.loanMonths);result.rampMonths=Math.round(result.rampMonths);result.staffCount=Math.round(result.staffCount);result.autoOperatingCosts=result.autoOperatingCosts>=.5?1:0;
   return result;
 }
 // User assumptions only: no location-score or floor multiplier predicts revenue.
@@ -80,7 +80,7 @@ export function estimatedIncomeTax(base:number) {
 function calculateAnnualPlan(raw:OpeningInputs,patientFactor=1,horizon=5) {
   const i=normalizeOpeningInputs(raw),loan=Math.min(i.loanAmount,i.depositManwon+i.openingBudgetManwon);
   const target=i.dailyPatients*patientFactor*i.revenuePerPatient*i.clinicDays;
-  const fixed=i.monthlyRentManwon+i.monthlyPayrollManwon+i.monthlyMarketingManwon+i.monthlyOtherCost;
+  const fixed=i.monthlyRentManwon+i.monthlyManagementManwon+i.monthlyPayrollManwon+i.monthlyMarketingManwon+i.monthlyOtherCost;
   return Array.from({length:horizon},(_,year)=>{
     let revenue=0,cashCosts=0,interest=0,principal=0;
     const monthly=[];

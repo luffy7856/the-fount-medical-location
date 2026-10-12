@@ -6,8 +6,10 @@ import type { LocationAnalysis, LivePlace, GrowthForecastPoint } from '../data/l
 import { matchesSpecialty } from '../data/specialties';
 import { locationResult } from '../data/location-result';
 import { calculateOpeningPlan, calculateFiveYearPlan, type OpeningInputs } from '../data/opening-plan';
+import { estimateVisitRevenue, openingInputsWithVisitRevenue } from '../data/specialty-revenue';
+import { applyAutomaticOperatingCosts } from '../data/operating-costs';
 
-export const REPORT_VERSION = '2026.09.14-r9';
+export const REPORT_VERSION = '2026.09.20-r10';
 const W=PageSizes.A4[0], H=PageSizes.A4[1], M=42, WIDTH=W-M*2, BOTTOM=58;
 const NAVY=rgb(.06,.14,.24), TEAL=rgb(.02,.43,.39), GOLD=rgb(.52,.39,.19);
 const INK=rgb(.14,.21,.29), MUTED=rgb(.34,.40,.47), LINE=rgb(.84,.88,.92);
@@ -254,11 +256,11 @@ function forecastDetail(r:Report,a:LocationAnalysis){
   if(f?.status==='available'&&f.historical.length&&f.projected.length){
     const points=[...f.historical,...f.projected].sort((a,b)=>a.year-b.year);
     r.paragraph('관측된 과거와 추정한 미래를 구분합니다.',{size:14,bold:true});
-    r.table(['연도','구분','거주인구','종사자','사업체'],[60,70,130,130,WIDTH-390],points.map(p=>({cells:[String(p.year),p.kind==='observed'?'관측':'추정',fmt(p.residentPopulation),fmt(p.workerPopulation),fmt(p.businesses)],emphasis:p.year===f.baseYear})),10,10);
+    r.table(['연도','구분','거주인구','이 지역 직장인','사업체'],[60,70,130,130,WIDTH-390],points.map(p=>({cells:[String(p.year),p.kind==='observed'?'관측':'추정',fmt(p.residentPopulation),fmt(p.workerPopulation),fmt(p.businesses)],emphasis:p.year===f.baseYear})),10,10);
     const base=points.find(p=>p.year===f.baseYear),last=f.projected[f.projected.length-1];
     if(base){
       r.paragraph(f.baseYear+'년 대비 '+last.year+'년 예상 변화',{size:14,bold:true});
-      r.table(['항목','증감','변화율'],[180,180,WIDTH-360],([['거주인구','residentPopulation'],['종사자','workerPopulation'],['사업체','businesses']] as const).map(([label,key])=>{
+      r.table(['항목','증감','변화율'],[180,180,WIDTH-360],([['거주인구','residentPopulation'],['이 지역 직장인','workerPopulation'],['사업체','businesses']] as const).map(([label,key])=>{
         const change=last[key]-base[key];return {cells:[label,(change>0?'+':'')+fmt(change)+(key==='businesses'?'곳':'명'),base[key]>0?(change>0?'+':'')+(change/base[key]*100).toFixed(1)+'%':'산정 불가']};
       }),10,10);
     }
@@ -285,6 +287,8 @@ function competitorsBrief(r:Report,a:LocationAnalysis){
 function financeBrief(r:Report,a:LocationAnalysis,i:OpeningInputs){
   r.pageStart('04. 수익성 분석');
   const p=calculateOpeningPlan(a,i);
+  const visitRevenue=estimateVisitRevenue(a);
+  const usesAutomaticRevenue=Math.abs(i.revenuePerPatient-visitRevenue.totalPerVisitWon/10000)<.011;
   r.paragraph('입력한 환자 수와 비용으로 보는 운영 가능성',{size:14,bold:true});
   r.cards([
     ['운영비 손익분기',p.breakEvenPatients===null?'산정 불가':p.breakEvenPatients+'명/일','대출·생활비·세금 제외'],
@@ -292,10 +296,12 @@ function financeBrief(r:Report,a:LocationAnalysis,i:OpeningInputs){
     ['세후 자기자금 회수',p.equity===0?'해당 없음':p.paybackMonths===null?'10년 내 미회수':p.paybackMonths+'개월','성장률·세금 반영']
   ]);
   r.table(['주요 입력 조건','금액·가정'],[225,WIDTH-225],[
-    ['입주 / 초기 투자',i.floor+'층 · '+i.areaPyeong+'평 / '+money(i.depositManwon+i.openingBudgetManwon)],
-    ['목표 환자 / 진료단가',i.dailyPatients+'명/일 · '+money(i.revenuePerPatient)+' / 월 '+i.clinicDays+'일'],
+    ['입주 / 초기 투자',i.floor+'층 · '+i.areaPyeong+'평 · 직원 '+i.staffCount+'명 / '+money(i.depositManwon+i.openingBudgetManwon)],
+    ['목표 환자 / '+(usesAutomaticRevenue?'자동 진료단가':'직접 입력 단가'),i.dailyPatients+'명/일 · '+money(i.revenuePerPatient)+' / 월 '+i.clinicDays+'일'],
     ['첫달 확보율 / 목표 도달',(i.rampMonths===1?100:i.initialPercent)+'% / '+i.rampMonths+'개월차'],
-    ['월 고정비 / 변동비율',money(i.monthlyRentManwon+i.monthlyPayrollManwon+i.monthlyMarketingManwon+i.monthlyOtherCost)+' / '+i.variablePercent+'%'],
+    ['월 임대료 / 관리비',money(i.monthlyRentManwon)+' / '+money(i.monthlyManagementManwon)],
+    ['월 인건비 / 직원 수',money(i.monthlyPayrollManwon)+' / '+i.staffCount+'명'],
+    ['그 밖의 고정비 / 변동비율',money(i.monthlyMarketingManwon+i.monthlyOtherCost)+' / '+i.variablePercent+'%'],
     ['대출 / 금리 / 상환',money(p.loan)+' · 연 '+i.annualInterest+'% · '+i.loanMonths+'개월'],
     ['원장 생활비 / 운영 예비자금',money(i.ownerWithdrawal)+'/월 · '+money(p.reserve)]
   ].map(cells=>({cells})),10,8);
@@ -304,7 +310,10 @@ function financeBrief(r:Report,a:LocationAnalysis,i:OpeningInputs){
     const v=calculateOpeningPlan(a,i,factor);
     return {cells:[['보수적 (-20%)','기준','낙관적 (+20%)'][k],money(v.monthlyCash),v.equity===0?'해당 없음':v.paybackMonths===null?'10년 내 미회수':v.paybackMonths+'개월'],emphasis:k===1};
   }),10,8);
-  r.paragraph('매출은 입지 데이터의 자동 예측이 아닌 입력 가정입니다. 세후 현금은 운영비·원리금·생활비·예상 세금을 뺀 금액입니다. 예비자금은 초기 투자와 별도입니다.',{size:9.5,color:MUTED});
+  r.paragraph(usesAutomaticRevenue
+    ? a.specialty+' 1회 매출은 보험 진료 '+money(visitRevenue.insuredPerVisitWon/10000)+'과 비급여 진료 가능성 '+money(visitRevenue.nonCoveredExpectedWon/10000)+'을 합친 시험 기준입니다. 실제 진료 구성에 따라 달라집니다.'
+    : '1회 매출은 원장님이 직접 입력한 금액입니다. 실제 보험·비급여 진료 구성과 비교하세요.',{size:9.5,color:MUTED});
+  r.paragraph('세후 현금은 운영비·원리금·생활비·예상 세금을 뺀 금액입니다. 예비자금은 초기 투자와 별도입니다.',{size:9.5,color:MUTED});
   if(i.loanAmount>p.loan)r.paragraph('대출은 초기 투자액까지만 반영했습니다.',{size:9.5,color:GOLD});
 }
 function financeCashflow(r:Report,a:LocationAnalysis,i:OpeningInputs){
@@ -371,7 +380,9 @@ export async function buildMedicalReport(a:LocationAnalysis,i:OpeningInputs){
   const r=new Report(doc,{regular,bold},a);
   locationBrief(r,a);locationDetail(r,a);locationFactors(r,a);locationDecision(r,a);
   forecastBrief(r,a);forecastDetail(r,a);competitorsBrief(r,a);
-  financeBrief(r,a,i);financeCashflow(r,a,i);taxBrief(r,i);taxDetail(r,i);
+  const operatingInputs=applyAutomaticOperatingCosts(a,i);
+  const effectiveInputs=openingInputsWithVisitRevenue(a,operatingInputs).inputs;
+  financeBrief(r,a,effectiveInputs);financeCashflow(r,a,effectiveInputs);taxBrief(r,effectiveInputs);taxDetail(r,effectiveInputs);
   r.finish();
   return doc.save({useObjectStreams:true});
 }

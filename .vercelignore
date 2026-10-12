@@ -1,0 +1,10 @@
+node_modules
+.next
+.next*
+.git
+.vercel
+.env*
+output
+tmp
+*.tsbuildinfo
+VIABILITY-IMPLEMENTATION.md

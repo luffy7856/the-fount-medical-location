@@ -37,33 +37,88 @@ export function locationResult(a: LocationAnalysis) {
 }
 
 export function locationNarrative(a: LocationAnalysis) {
-  const d=a.demographics, p=a.regionalProfile;
-  const fmt=(n:number)=>Math.round(n).toLocaleString('ko-KR');
-  const pct=(n:number,total:number)=>(n/total*100).toFixed(1)+'%';
-  const sections: {title:string;text:string;source:string}[]=[];
-  const focus=a.specialty==='피부과'||a.specialty==='성형외과'?'미용 중심 진료와 질환 중심 진료는 대상 환자와 방문 목적이 다릅니다. 연령 구성과 소비 지표를 진료 모델에 맞춰 비교하세요.':a.specialty==='소아청소년과'?'아동 인구와 학교·보육시설을 함께 보고 실제 가족 거주와 반복 방문 가능성을 비교하세요.':a.specialty==='정형외과'||a.specialty==='내과'?'중장년·고령층의 거주 규모와 직장 수요를 함께 보고 반복 방문 접근성을 비교하세요.':'목표 진료 대상의 연령대와 실제 방문 동선을 함께 비교하세요.';
-  if(d&&d.residentPopulation>0){
-    const sameYear=p?.year===d.year;
-    const groups: ReadonlyArray<readonly [string,number|undefined]>=sameYear&&p ? [
-      ['15세 미만',p.childPopulation],['20~39세',p.youngAdultPopulation],['40~59세',p.middleAgePopulation],['65세 이상',p.seniorPopulation]
-    ] as const : [];
-    const ages=groups.filter((item):item is readonly [string,number]=>typeof item[1]==='number').map(([label,n])=>`${label} ${pct(n,d.residentPopulation)}`).join(', ');
-    const sex=sameYear&&p?.malePopulation!==undefined&&p.femalePopulation!==undefined ? `남성 ${pct(p.malePopulation,d.residentPopulation)}, 여성 ${pct(p.femalePopulation,d.residentPopulation)}입니다. ` : '';
-    sections.push({title:`환자층과 ${a.specialty} 수요`,text:`${d.areaName}의 거주인구는 ${fmt(d.residentPopulation)}명입니다. ${sex}${ages ? `주요 연령대는 ${ages}입니다. `:''}${focus}`,source:`SGIS ${d.year}년 · 행정동 전체 주민 기준. 연령 구간은 일부만 표시하며 실제 방문환자 비율은 아닙니다.`});
-    const ratio=d.workerPopulation/d.residentPopulation;
-    sections.push({title:'거주 수요와 직장 수요의 균형',text:`거주인구 ${fmt(d.residentPopulation)}명에 비해 사업체 종사자는 ${fmt(d.workerPopulation)}명으로, 거주인구 규모의 약 ${ratio.toFixed(1)}배입니다. ${ratio>=1.5?'직장 수요의 규모가 커 평일 점심·퇴근 시간 진료와 건물 앞 동선을 특히 살펴볼 만합니다.':ratio<=.7?'주거 수요의 규모가 상대적으로 커 생활권 안에서 반복 방문할 환자층과 주말 진료 수요를 살펴볼 만합니다.':'주거와 직장 수요를 함께 고려하고 평일·주말의 진료시간을 비교할 만합니다.'} 두 집계는 서로 겹칠 수 있어 합쳐서 고유 환자 수나 인구 비율로 계산하지 않습니다.`,source:`SGIS ${d.year}년 · ${d.areaName} 주민·사업체 종사자 규모 비교`});
-  }else sections.push({title:'환자층과 생활권',text:'현재 이 지역의 연령·성별·거주 및 종사자 자료가 충분하지 않습니다. 목표 환자층이 실제로 생활하고 이동하는 범위를 현장에서 확인해야 합니다.',source:'확보된 인구자료 범위에서만 해석합니다.'});
-  const facilities=p ? [p.elementarySchools!==undefined?`초등학교 ${fmt(p.elementarySchools)}곳`:'',p.childcareFacilities!==undefined?`어린이집·유치원 ${fmt(p.childcareFacilities)}곳`:''].filter(Boolean).join(', ') : '';
-  sections.push({title:'주변 상권과 생활환경',text:`${p?.character?`확인된 인구와 시설 특성에서는 '${p.character}' 유형으로 해석됩니다.`:'상권 유형은 주변 주거·업무시설과 실제 보행 동선을 함께 확인해야 합니다.'}${facilities?` 선택 반경 안에서 ${facilities}이 검색되었습니다. 학교·보육시설 수는 가족 생활권의 참고 신호이며 소아 진료 수요를 보장하지는 않습니다.`:''} 상가 업종 구성과 아파트 입주율이 확인되지 않은 경우 특정 상권이나 신도시·구도심으로 단정하지 않습니다.`,source:`지역 특성: SGIS · 시설: ${a.provider==='kakao'?'Kakao Local':'OpenStreetMap'} 장소검색 · 반경 ${fmt(a.radiusMeters)}m`});
-  const competition=a.metrics.find(m=>m.label==='경쟁환경');
-  const consumer=a.consumerPower;
-  const consumerText=consumer?.status==='available'&&consumer.percentile!==undefined?`지역 소비총액은 서울 행정동 비교에서 ${consumer.percentile}백분위입니다. 소비총액이 큰 지역이라도 개별 환자의 지불 여력이나 병원 객단가와 같지는 않습니다. `:'';
-  sections.push({title:'경쟁과 진료 포지셔닝',text:`반경 ${fmt(a.radiusMeters)}m에서 ${a.specialty} 직접 경쟁 장소 ${fmt(a.counts.matchingSpecialty)}곳${a.countLimits?.matchingSpecialty?' 이상':''}이 확인됩니다. ${competition?.value!==null&&competition?.value!==undefined&&competition.value<50?'경쟁 부담이 큰 편이므로 세부 진료, 가격대, 운영시간이 얼마나 겹치는지 비교하고 환자가 선택할 이유를 구체화해야 합니다.':'병원 수만으로 유불리를 결정하기보다 같은 과의 세부 진료와 환자층이 겹치는지 비교해야 합니다.'} ${consumerText}`,source:`경쟁: 장소명·분류 검색 기준${consumer?.status==='available'?` · 소비: ${consumer.source} ${consumer.referencePeriod||''}`:''}`});
-  const dev=a.developmentPlans;
-  const plans=dev?.status==='available'?dev.plans.slice(0,3):[];
-  const f=a.growthForecast;
-  const base=f?.historical.find(point=>point.year===f.baseYear),last=f?.projected[f.projected.length-1];
-  const projection=f?.status==='available'&&base&&last&&base.residentPopulation>0 ? ` 최근 자료 추세를 연장하면 ${f.baseYear}년 대비 ${last.year}년 거주인구는 ${Math.abs((last.residentPopulation/base.residentPopulation-1)*100).toFixed(1)}% ${last.residentPopulation>=base.residentPopulation?'증가':'감소'}하는 시나리오입니다. 이는 과거 추세의 연장이며 개발사업 효과를 반영한 확정 예측은 아닙니다.`:'';
-  sections.push({title:'개발계획과 향후 변화',text:(plans.length?`확인된 계획은 ${plans.map(plan=>`${plan.name}(${plan.status}${plan.targetDate?`, 목표 ${plan.targetDate}`:''})`).join(', ')}입니다. 계획 존재만으로 호재나 환자 증가를 단정할 수 없으며 일정·사업 범위와 실제 입주 시점을 확인해야 합니다.`:'현재 확보된 자료만으로 특정 아파트 입주·재개발·교통 확장을 개발 호재로 제시할 수는 없습니다. 계약 전 확정 사업의 위치와 일정, 실제 입주 여부를 확인하세요.')+projection,source:[plans.length?`${dev?.source} ${dev?.referenceDate||''}`:'확인된 개발사업만 반영',f?.status==='available'?`SGIS · ${f.model}`:''].filter(Boolean).join(' · ')});
+  const d = a.demographics, p = a.regionalProfile;
+  const fmt = (n: number) => Math.round(n).toLocaleString('ko-KR');
+  const pct = (n: number, total: number) => `${Math.round(n / total * 1000) / 10}%`;
+  const sections: { title: string; text: string; source: string }[] = [];
+  const sameYear = Boolean(d && p && d.year === p.year);
+  const ageShare = (value: number | undefined) => sameYear && d && d.residentPopulation > 0 && value !== undefined ? pct(value, d.residentPopulation) : null;
+
+  if (d && d.residentPopulation > 0) {
+    const child = ageShare(p?.childPopulation), young = ageShare(p?.youngAdultPopulation);
+    const middle = ageShare(p?.middleAgePopulation), senior = ageShare(p?.seniorPopulation);
+    const ageLine = [child && `15세 미만 ${child}`, young && `20~39세 ${young}`, middle && `40~59세 ${middle}`, senior && `65세 이상 ${senior}`].filter(Boolean).join(', ');
+    const sexLine = sameYear && p?.malePopulation !== undefined && p.femalePopulation !== undefined
+      ? ` 남성 ${pct(p.malePopulation, d.residentPopulation)}, 여성 ${pct(p.femalePopulation, d.residentPopulation)}입니다.` : '';
+    const specialtyLine = a.specialty === '소아청소년과' && child ? `소아청소년과에서는 15세 미만 주민 ${child}와 주변 학교·보육시설을 함께 볼 만합니다.`
+      : ['내과', '정형외과', '한의원', '안과', '비뇨기과'].includes(a.specialty) && (middle || senior) ? `${a.specialty}에서는 중장년·고령 주민 비중이 진료 대상과 맞는지 살펴볼 만합니다.`
+      : ['피부과', '성형외과'].includes(a.specialty) && young ? `${a.specialty}에서는 20~39세 주민 ${young}와 직장인 생활권의 시간대를 함께 살펴볼 만합니다.`
+      : `이 연령 구성이 ${a.specialty}의 주된 진료 대상과 맞는지 볼 수 있습니다.`;
+    sections.push({
+      title: '이 지역에는 어떤 사람이 살까요?',
+      text: `${d.areaName}에는 ${fmt(d.residentPopulation)}명이 거주합니다.${sexLine}${ageLine ? ` 주요 연령대는 ${ageLine}입니다.` : ''} ${specialtyLine}`,
+      source: `지역 주민 통계 ${d.year}년 · ${d.areaName} 전체 주민 기준. 실제 병원 방문자 수가 아닙니다.`,
+    });
+    const ratio = d.workerPopulation / d.residentPopulation;
+    const rhythm = ratio >= 1.5 ? '평일 낮에는 직장인 방문을 기대할 수 있고, 퇴근 뒤·주말은 따로 살펴볼 필요가 있습니다.'
+      : ratio <= .7 ? '주민의 반복 방문이 중요한 생활권으로, 집에서 병원까지 오는 길과 주말 진료를 살펴볼 만합니다.'
+      : '주민과 직장인 생활이 함께 있는 곳으로, 평일 낮과 저녁의 환자 흐름을 나누어 볼 만합니다.';
+    const live = a.livingPopulation?.status === 'available' && a.livingPopulation.total !== undefined
+      ? ` 선택한 ${String(a.livingPopulation.hour).padStart(2, '0')}시에는 주변에 약 ${fmt(a.livingPopulation.total)}명이 머무는 것으로 집계됩니다.` : '';
+    sections.push({
+      title: '주거지인가요, 직장인 생활권인가요?',
+      text: `거주 주민 ${fmt(d.residentPopulation)}명, 지역 사업체 종사자 ${fmt(d.workerPopulation)}명입니다. ${rhythm}${live}`,
+      source: `지역 주민·사업체 종사자 ${d.year}년. 두 집계는 겹칠 수 있으며 실제 환자 수로 합산하지 않습니다.${live ? ' 시간대별 주변 인구는 서울시 생활인구 자료입니다.' : ''}`,
+    });
+  } else {
+    sections.push({ title: '이 지역에는 어떤 사람이 살까요?', text: '주변 주민의 연령과 직장인 규모를 아직 확인하지 못했습니다. 가까운 주거지와 업무시설, 진료시간대의 사람 흐름부터 살펴볼 자리입니다.', source: '지역 인구 자료 미확보' });
+  }
+
+  const schools = p?.elementarySchools !== undefined ? `초등학교 ${fmt(p.elementarySchools)}곳` : '';
+  const care = p?.childcareFacilities !== undefined ? `어린이집·유치원 ${fmt(p.childcareFacilities)}곳` : '';
+  const facilities = [schools, care].filter(Boolean).join(', ');
+  const familyLine = facilities ? `선택한 주변 범위에는 ${facilities}이 있습니다.${a.specialty === '소아청소년과' ? ' 가족 단위 방문을 생각할 때 학교와 집에서 이 건물까지 오는 길이 중요합니다.' : ''}` : '';
+  sections.push({
+    title: '주변은 어떤 생활권인가요?',
+    text: `${p?.character ? `${p.character}으로 보입니다. ${p.characterReason}` : '주변 주거지와 업무시설의 비중을 더 확인해야 합니다.'} ${familyLine}`,
+    source: `지역 성격은 주민·직장인 자료를 바탕으로 분류했습니다. 학교·보육시설은 주변 ${fmt(a.radiusMeters)}m의 지도 검색 결과입니다.`,
+  });
+
+  const competing = a.counts.matchingSpecialty;
+  const competitionScore = a.metrics.find(metric => metric.label === '경쟁환경')?.value;
+  const competitionLine = competitionScore !== null && competitionScore !== undefined && competitionScore < 50
+    ? '같은 과 병원이 촘촘해 신규 개원 시 진료내용과 운영시간의 차별화가 중요합니다.'
+    : competing === 0 ? '현재 등록된 같은 과 병원은 찾지 못했습니다. 환자 수요와 가까운 생활권의 병원을 함께 살펴볼 자리입니다.'
+      : '가까운 병원들이 어떤 진료를 주로 하는지 비교하면 이 자리의 틈을 더 구체적으로 찾을 수 있습니다.';
+  const consumer = a.consumerPower;
+  const consumerLine = consumer?.status === 'available' && consumer.percentile !== undefined
+    ? `지역 소비 활동은 비교 지역 중 ${consumer.percentile >= 70 ? '활발한' : consumer.percentile <= 30 ? '낮은' : '중간'} 편입니다.${consumer.medicalPercentile !== undefined ? ` 의료 관련 소비도 함께 확인됐습니다.` : ''}` : '';
+  sections.push({
+    title: '같은 과 병원과 지역 소비는 어떤가요?',
+    text: `주변 ${fmt(a.radiusMeters)}m에서 ${a.specialty} 병원 ${fmt(competing)}곳${a.countLimits?.matchingSpecialty ? ' 이상' : ''}이 검색됩니다. ${competitionLine} ${consumerLine}`,
+    source: `같은 진료과는 병원명·분류 검색 기준.${consumerLine ? ` 소비는 ${consumer?.source} ${consumer?.referencePeriod || ''} 기준으로, 병원 매출이나 환자 1명의 지출액과 다릅니다.` : ''}`,
+  });
+
+  const transit = a.counts.transit, parking = a.counts.parking;
+  const rent = a.rentMarket;
+  const rentLine = rent?.status === 'available' && rent.monthlyRentPerPyeongManwon !== undefined
+    ? `주변 상가의 평당 월세 참고값은 ${rent.monthlyRentPerPyeongManwon.toLocaleString('ko-KR')}만원입니다.` : '이 호실의 실제 월세는 아직 입력되지 않았습니다.';
+  sections.push({
+    title: '환자가 오기 쉽고 월세를 감당할 만한가요?',
+    text: `주변 지하철역 ${fmt(transit)}곳, 등록된 주차시설 ${fmt(parking)}곳을 확인했습니다. ${transit >= 2 ? '대중교통으로 오는 환자의 동선을 살펴볼 만합니다.' : parking >= 2 ? '차량으로 오는 환자의 주차와 건물 출입을 살펴볼 만합니다.' : '건물 앞 보행 동선과 주차 가능 여부가 중요합니다.'} ${rentLine}`,
+    source: `역·주차시설은 주변 ${fmt(a.radiusMeters)}m 지도 검색 기준. 주차시설 수는 해당 건물의 주차 가능 대수가 아닙니다.${rentLine && rent?.status === 'available' ? ` 월세는 ${rent.source}의 지역 참고값으로 실제 계약서 금액과 다릅니다.` : ''}`,
+  });
+
+  const plans = a.developmentPlans?.status === 'available' ? a.developmentPlans.plans.slice(0, 3) : [];
+  const f = a.growthForecast;
+  const base = f?.historical.find(point => point.year === f.baseYear), last = f?.projected.at(-1);
+  const trend = f?.status === 'available' && base && last && base.residentPopulation > 0
+    ? `최근 지역 변화가 이어진다면 ${last.year}년 주민은 ${f.baseYear}년보다 ${last.residentPopulation >= base.residentPopulation ? '늘어나는' : '줄어드는'} 흐름으로 보입니다.` : '';
+  const planLine = plans.length ? `주변에서 확인된 계획은 ${plans.map(plan => plan.name).join(', ')}입니다.` : '';
+  sections.push({
+    title: '앞으로 이 지역은 어떻게 달라질까요?',
+    text: `${trend || '최근 몇 년의 지역 변화를 충분히 확인하지 못했습니다.'} ${planLine || '현재 확보한 자료에서 구체적인 개발계획은 확인되지 않았습니다.'}${plans.length ? ' 계획 위치와 실제 진행시기를 확인하면 개원 시점에 미칠 영향을 더 구체적으로 볼 수 있습니다.' : ''}`,
+    source: `${f?.status === 'available' ? `지역 주민 추세 ${f.baseYear}년 기준. 향후 값은 최근 흐름을 연장한 추정입니다.` : '연도별 지역 자료 부족.'} ${plans.length ? `${a.developmentPlans?.source}의 계획구역 정보이며 준공·입주가 확정됐다는 뜻은 아닙니다.` : ''}`,
+  });
   return sections;
 }

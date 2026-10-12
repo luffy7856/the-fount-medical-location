@@ -1,8 +1,10 @@
 import "server-only";
 
+import { get as httpsGet } from "node:https";
+
 import type {
   ConsumerPowerData, DataConnection, DevelopmentPlanData, DevelopmentPlanItem,
-  ExternalDataStatus, HiraMedicalData, RentMarketData
+  ExternalDataStatus, HiraMedicalData, RentMarketData, LivePlace
 } from "@/data/location-types";
 import type { Specialty } from "@/data/specialties";
 
@@ -74,20 +76,60 @@ async function fetchHiraCount(baseUrl: string, key: string, context: ProviderCon
   return total;
 }
 
+type HiraRowsResult = { rows: Record<string, unknown>[]; total: number; complete: boolean };
+
+async function fetchHiraRows(baseUrl: string, key: string, context: ProviderContext, maxRows = 500): Promise<HiraRowsResult> {
+  const pageSize = 100;
+  const requestPage = async (page: number) => {
+    const url = new URL(baseUrl);
+    url.searchParams.set("serviceKey", safeServiceKey(key));
+    url.searchParams.set("pageNo", String(page));
+    url.searchParams.set("numOfRows", String(pageSize));
+    url.searchParams.set("xPos", String(context.longitude));
+    url.searchParams.set("yPos", String(context.latitude));
+    url.searchParams.set("radius", String(context.radiusMeters));
+    const response = await fetch(url, { next: { revalidate: 86400 }, signal: AbortSignal.timeout(7000) });
+    const xml = await response.text();
+    if (!response.ok || /SERVICE_(?:ACCESS_DENIED|KEY_IS_NOT_REGISTERED)|PERMISSION_DENIED/i.test(xml)) throw new Error("승인키 권한을 확인해주세요.");
+    const resultCode = xmlValue(xml, "resultCode");
+    if (resultCode && !["00", "0"].includes(resultCode)) throw new Error("HIRA 조회가 승인되지 않았거나 일시적으로 제한되었습니다.");
+    return { rows: parseXmlRows(xml), total: Number(xmlValue(xml, "totalCount") || 0) };
+  };
+  const first = await requestPage(1);
+  if (!Number.isSafeInteger(first.total) || first.total < 0) throw new Error("HIRA 응답에 유효한 기관 수가 없습니다. 잠시 후 다시 조회해주세요.");
+  const pageCount = Math.ceil(first.total / pageSize);
+  const requestedPages = Math.min(pageCount, Math.ceil(maxRows / pageSize));
+  const remaining = requestedPages > 1
+    ? await Promise.all(Array.from({ length: requestedPages - 1 }, (_, index) => requestPage(index + 2)))
+    : [];
+  const rows = [first, ...remaining].flatMap(page => page.rows);
+  return { rows, total: first.total, complete: pageCount <= requestedPages && rows.length >= first.total };
+}
+
+function exactHiraSpecialtyMatch(row: Record<string, unknown>, specialty: Specialty) {
+  const text = `${String(row.yadmNm || "")} ${String(row.clCdNm || "")}`;
+  if (specialty === "한의원") return /한의원|한방병원/.test(text);
+  if (specialty === "치과") return /치과병원|치과의원/.test(text);
+  return false;
+}
+
 async function fetchHiraMedical(context: ProviderContext): Promise<HiraMedicalData> {
   const key = process.env.HIRA_SERVICE_KEY || process.env.DATA_GO_KR_SERVICE_KEY;
   if (!key) return { status: "not_configured", source: "건강보험심사평가원 병원정보서비스", referenceDate: todayInSeoul(), radiusMeters: context.radiusMeters, message: "HIRA_SERVICE_KEY 승인키를 등록하면 공식 의료기관 수가 활성화됩니다." };
   const hospitalUrl = process.env.HIRA_HOSPITAL_API_URL || "https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList";
   const pharmacyUrl = process.env.HIRA_PHARMACY_API_URL || "https://apis.data.go.kr/B551182/pharmacyInfoService/getParmacyBasisList";
   try {
-    const [medicalCount, pharmacyCount] = await Promise.all([
-      fetchHiraCount(hospitalUrl, key, context),
+    const [hospitals, pharmacyCount] = await Promise.all([
+      fetchHiraRows(hospitalUrl, key, context),
       fetchHiraCount(pharmacyUrl, key, context).catch(() => undefined)
     ]);
+    const matchingSpecialtyCount = hospitals.complete && ["한의원", "치과"].includes(context.specialty)
+      ? hospitals.rows.filter(row => exactHiraSpecialtyMatch(row, context.specialty)).length
+      : undefined;
     return {
       status: "available", source: "건강보험심사평가원 병원정보서비스", referenceDate: todayInSeoul(),
-      radiusMeters: context.radiusMeters, medicalCount, pharmacyCount,
-      message: `반경 ${context.radiusMeters.toLocaleString()}m의 HIRA 신고 기준 전체 의료기관 수입니다.${pharmacyCount === undefined ? " 약국은 별도 API 승인 확인 전까지 기존 지도 검색 수를 표시합니다." : " 약국 수도 HIRA 신고 기준입니다."} 진료과목 신고기관 수는 복수 진료과목을 포함하므로 직접 경쟁 수에는 사용하지 않습니다.`
+      radiusMeters: context.radiusMeters, medicalCount: hospitals.total, matchingSpecialtyCount, pharmacyCount,
+      message: `반경 ${context.radiusMeters.toLocaleString()}m의 HIRA 신고 기준 전체 의료기관 수입니다.${matchingSpecialtyCount === undefined ? " 진료과목 신고기관 수는 복수 진료과목을 포함하므로 직접 경쟁 수에는 사용하지 않습니다." : ` ${context.specialty} 관련 기관 ${matchingSpecialtyCount.toLocaleString()}곳은 기관 종별 기준입니다.`}${pharmacyCount === undefined ? " 약국은 별도 API 승인 확인 전까지 기존 지도 검색 수를 표시합니다." : " 약국 수도 HIRA 신고 기준입니다."}`
     };
   } catch (error) {
     return { status: "error", source: "건강보험심사평가원 병원정보서비스", referenceDate: todayInSeoul(), radiusMeters: context.radiusMeters, message: error instanceof Error ? error.message : "HIRA 데이터를 불러오지 못했습니다." };
@@ -202,7 +244,33 @@ function expandTemplate(template: string, key: string | undefined, context: Prov
     .replaceAll("{maxLng}", String(bbox[2]))
     .replaceAll("{maxLat}", String(bbox[3]))
     .replaceAll("{bbox}", bbox.join(","))
-    .replaceAll("{domain}", encodeURIComponent(process.env.VWORLD_API_DOMAIN || "https://the-fount-medical-location.vercel.app"));
+    .replaceAll("{domain}", encodeURIComponent(process.env.VWORLD_API_DOMAIN || "https://www.thefount.co.kr"));
+}
+
+/** Match only an exact name and nearby coordinate; ambiguous records stay unlinked. */
+export async function enrichHiraPlaces(places: LivePlace[], context: ProviderContext): Promise<LivePlace[]> {
+  const key = process.env.HIRA_SERVICE_KEY || process.env.DATA_GO_KR_SERVICE_KEY;
+  if (!key) return places;
+  try {
+    const hospitalUrl = process.env.HIRA_HOSPITAL_API_URL || 'https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList';
+    const { rows } = await fetchHiraRows(hospitalUrl, key, context);
+    const normalize = (name: string) => name.replace(/[\s()（）]/g, '');
+    const enriched = places.map(place => {
+      if (place.kind !== 'hospital') return place;
+      const matches = rows.filter(row => normalize(String(row.yadmNm || '')) === normalize(place.name) &&
+        Math.hypot((Number(row.YPos) - place.latitude) * 111320, (Number(row.XPos) - place.longitude) * 88000) < 150);
+      if (matches.length !== 1) return place;
+      const row = matches[0]; const count = row.drTotCnt === undefined || row.drTotCnt === '' ? NaN : Number(row.drTotCnt);
+      return { ...place, medicalCapacity: { source: 'HIRA' as const,
+        doctorCount: Number.isInteger(count) && count >= 0 ? count : undefined,
+        institutionType: typeof row.clCdNm === 'string' ? row.clCdNm : undefined, referenceDate: todayInSeoul() } };
+    });
+    // HIRA is authoritative for counts, but its registered name can differ from the
+    // Kakao branch name (for example "의원" vs "의원 홍대점"). Appending unmatched
+    // HIRA rows would therefore draw the same clinic twice. Keep Kakao as the map
+    // inventory and use HIRA only to enrich an unambiguous exact match.
+    return enriched;
+  } catch { return places; }
 }
 
 function providerHeaders(key: string | undefined, keyHeader: string | undefined) {
@@ -465,6 +533,39 @@ async function fetchRentMarket(context: ProviderContext): Promise<RentMarketData
 
 type BoundingBox = [minLongitude: number, minLatitude: number, maxLongitude: number, maxLatitude: number];
 
+function fetchJsonWithIpv4(url: URL, timeoutMs = 16_000): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const request = httpsGet(url, {
+      family: 4,
+      headers: {
+        Accept: "application/json",
+        Connection: "close",
+        "User-Agent": "THE-FOUNT-Medical-Location/1.0"
+      }
+    }, response => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => {
+        body += chunk;
+        if (body.length > 5_000_000) request.destroy(new Error("VWorld 응답이 너무 큽니다."));
+      });
+      response.on("end", () => {
+        if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(`VWorld HTTP ${response.statusCode || "unknown"}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(body) as Record<string, unknown>);
+        } catch {
+          reject(new Error("VWorld 응답 형식을 확인할 수 없습니다."));
+        }
+      });
+    });
+    request.setTimeout(timeoutMs, () => request.destroy(new Error("VWorld IPv4 연결 시간이 초과됐습니다.")));
+    request.on("error", reject);
+  });
+}
+
 function vworldBoundingBoxes(context: ProviderContext): BoundingBox[] {
   const latitudeDelta = context.radiusMeters / 111_320;
   const longitudeDelta = context.radiusMeters / (111_320 * Math.max(.2, Math.cos(context.latitude * Math.PI / 180)));
@@ -495,17 +596,46 @@ async function fetchVworldLayer(key: string, layer: typeof VWORLD_PLAN_LAYERS[nu
   url.searchParams.set("request", "GetFeature");
   url.searchParams.set("data", layer.id);
   url.searchParams.set("key", key);
-  url.searchParams.set("domain", process.env.VWORLD_API_DOMAIN || "https://the-fount-medical-location.vercel.app");
+  url.searchParams.set("domain", process.env.VWORLD_API_DOMAIN || "https://www.thefount.co.kr");
   url.searchParams.set("format", "json");
-  url.searchParams.set("size", "1000");
+  // A location report only needs nearby plans. Keeping the response compact makes
+  // VWorld more reliable from serverless regions and avoids downloading huge shapes.
+  url.searchParams.set("size", "200");
   url.searchParams.set("page", "1");
   url.searchParams.set("geometry", "true");
   url.searchParams.set("attribute", "true");
   url.searchParams.set("crs", "EPSG:4326");
   url.searchParams.set("geomFilter", `BOX(${box.join(",")})`);
-  const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(8_000) });
-  if (!response.ok) throw new Error(`${layer.category} HTTP ${response.status}`);
-  const payload = await response.json() as Record<string, unknown>;
+  let payload: Record<string, unknown> | undefined;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: { Accept: "application/json", "User-Agent": "THE-FOUNT-Medical-Location/1.0" },
+        signal: AbortSignal.timeout(attempt === 0 ? 8_000 : attempt === 1 ? 12_000 : 16_000)
+      });
+      if (!response.ok) throw new Error(`${layer.category} HTTP ${response.status}`);
+      payload = await response.json() as Record<string, unknown>;
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
+  if (!payload) {
+    try {
+      // Undici-based fetch can occasionally lose the upstream connection from
+      // a serverless region. Retry once over a fresh IPv4 HTTPS connection.
+      payload = await fetchJsonWithIpv4(url);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!payload) {
+    const cause = lastError instanceof Error && lastError.cause instanceof Error ? ` · ${lastError.cause.message}` : "";
+    throw new Error(`${layer.category} 연결 실패${cause}`);
+  }
   const responseBlock = payload.response;
   if (responseBlock && typeof responseBlock === "object") {
     const status = String((responseBlock as Record<string, unknown>).status || "").toUpperCase();
@@ -529,12 +659,50 @@ function vworldPlanName(row: Record<string, unknown>) {
   ]);
 }
 
+function developmentImpact(text: string): DevelopmentPlanItem["impact"] {
+  if (/철도|지하철|전철|역세권|도로|교통|환승/.test(text)) return "transport";
+  if (/주택|아파트|공동주택|택지|주거|LH|신도시/.test(text)) return "housing";
+  if (/재개발|재건축|정비|환경개선/.test(text)) return "renewal";
+  if (/산업|업무|오피스|상업|시장/.test(text)) return "commercial";
+  return "other";
+}
+
+function hasActionableSchedule(plan: Pick<DevelopmentPlanItem, "status" | "targetDate">) {
+  if (!plan.targetDate) return false;
+  const currentYear = new Date().getFullYear();
+  const years = Array.from(plan.targetDate.matchAll(/(?:19|20)\d{2}/g), match => Number(match[0]));
+  const withinThreeYears = years.some(year => year >= currentYear && year <= currentYear + 3);
+  return withinThreeYears && /확정|승인|착공|공사|진행|입주\s*예정|개통\s*예정|준공\s*예정/i.test(plan.status);
+}
+
+function developmentScore(plans: DevelopmentPlanItem[]) {
+  const scheduled = plans.filter(hasActionableSchedule);
+  if (!scheduled.length) return undefined;
+  const points = scheduled.reduce((sum, plan) => {
+    const impact = plan.impact === "housing" ? 7 : plan.impact === "transport" ? 6 : plan.impact === "commercial" ? 5 : 3;
+    const distance = plan.distanceMeters === undefined ? .65 : plan.distanceMeters <= 500 ? 1 : plan.distanceMeters <= 1500 ? .8 : .55;
+    return sum + impact * distance;
+  }, 0);
+  return Math.round(Math.max(45, Math.min(85, 50 + points)));
+}
+
 async function fetchVworldPlans(context: ProviderContext, key: string): Promise<DevelopmentPlanData> {
   const source = "VWorld 2D 데이터 API (국토교통부·LH)";
   const boxes = vworldBoundingBoxes(context);
-  const results = await Promise.allSettled(
-    VWORLD_PLAN_LAYERS.flatMap(layer => boxes.map(box => fetchVworldLayer(key, layer, box)))
-  );
+  // VWorld occasionally closes a serverless connection when several spatial
+  // layers are requested at once. Querying one layer at a time is slightly
+  // slower but avoids treating a temporary upstream throttle as "no plans".
+  const results: PromiseSettledResult<Record<string, unknown>[]>[] = [];
+  for (const layer of VWORLD_PLAN_LAYERS) {
+    for (const box of boxes) {
+      try {
+        results.push({ status: "fulfilled", value: await fetchVworldLayer(key, layer, box) });
+      } catch (reason) {
+        results.push({ status: "rejected", reason });
+      }
+      await new Promise(resolve => setTimeout(resolve, 180));
+    }
+  }
   const fulfilled = results.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
   if (!fulfilled.length) {
     const firstFailure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
@@ -552,6 +720,8 @@ async function fetchVworldPlans(context: ProviderContext, key: string): Promise<
       name,
       category,
       status: "공간계획 지정정보",
+      impact: developmentImpact(`${category} ${name}`),
+      evidenceLevel: "official_zone",
       latitude: coordinate?.latitude,
       longitude: coordinate?.longitude,
       distanceMeters: coordinate ? distanceMeters(context, coordinate) : undefined
@@ -571,6 +741,8 @@ async function fetchVworldPlans(context: ProviderContext, key: string): Promise<
   }
   return {
     status: "available", source, referenceDate: todayInSeoul(), radiusMeters: context.radiusMeters, plans,
+    scheduledPlanCount: 0, referencePlanCount: plans.length,
+    scoreBasis: "VWorld 지정구역은 일정이 확인되지 않아 성장성 점수에 가산하지 않음",
     message: `선택 반경에서 공식 계획공간 ${plans.length}건을 확인했습니다. 지정구역 정보이며 착공·준공 일정이나 사업 확정 여부를 뜻하지 않아 성장성 점수에는 직접 반영하지 않습니다.`
   };
 }
@@ -600,14 +772,25 @@ async function fetchDevelopmentPlans(context: ProviderContext): Promise<Developm
         category: firstText(row, ["category", "PLAN_TYPE", "type", "projectType", "사업구분", "계획유형", "시설종류"]) || "공개 개발계획",
         status: firstText(row, ["status", "PLAN_STATUS", "progress", "projectStatus", "진행상태", "사업상태", "추진단계"]) || "공개자료 확인",
         distanceMeters: suppliedDistance ?? (coordinate ? distanceMeters(context, coordinate) : undefined),
-        targetDate: firstText(row, ["targetDate", "TARGET_DATE", "completionDate", "endDate", "준공예정일", "완료예정일", "사업기간"])
+        targetDate: firstText(row, ["targetDate", "TARGET_DATE", "completionDate", "endDate", "준공예정일", "완료예정일", "입주예정일", "개통예정일", "사업기간"])
       }];
     }).slice(0, 30);
     if (!plans.length) return { ...base, status: "no_data", message: "선택 반경의 공개 개발계획을 찾지 못했습니다." };
-    const active = plans.filter(plan => /진행|승인|공사|예정|확정/i.test(plan.status)).length;
-    const score = Math.max(35, Math.min(90, 45 + active * 6 + (plans.length - active) * 2));
+    const classifiedPlans = plans.map(plan => {
+      const actionable = hasActionableSchedule(plan);
+      return { ...plan, impact: developmentImpact(`${plan.category} ${plan.name}`), evidenceLevel: actionable ? "confirmed_schedule" as const : "reference" as const };
+    });
+    const scheduledPlanCount = classifiedPlans.filter(plan => plan.evidenceLevel === "confirmed_schedule").length;
+    const score = developmentScore(classifiedPlans);
     const referenceDates = rows.map(row => firstText(row, ["referenceDate", "REFERENCE_DATE", "baseDate", "BASE_DATE", "기준일", "갱신일"])).filter((value): value is string => Boolean(value)).sort();
-    return { status: "available", source, referenceDate: referenceDates.at(-1) || todayInSeoul(), radiusMeters: context.radiusMeters, plans, score, message: `선택 반경의 공개 계획 ${plans.length}건 중 진행·승인·예정 ${active}건을 확인했습니다. 계획의 확정 여부와 일정은 원문을 별도로 확인해야 합니다.` };
+    return {
+      status: "available", source, referenceDate: referenceDates.at(-1) || todayInSeoul(), radiusMeters: context.radiusMeters,
+      plans: classifiedPlans, score, scheduledPlanCount, referencePlanCount: classifiedPlans.length - scheduledPlanCount,
+      scoreBasis: score === undefined ? "일정과 진행상태가 함께 확인된 계획이 없어 성장성 점수에 가산하지 않음" : `일정과 진행상태가 함께 확인된 계획 ${scheduledPlanCount}건만 거리별로 반영`,
+      message: scheduledPlanCount
+        ? `선택 반경의 공개 계획 ${classifiedPlans.length}건 중 일정과 진행상태가 확인된 ${scheduledPlanCount}건을 3년 전망의 보조 신호로 반영했습니다.`
+        : `선택 반경의 공개 계획 ${classifiedPlans.length}건을 확인했지만 일정과 진행상태가 함께 확인되지 않아 참고자료로만 표시합니다.`
+    };
   } catch (error) { return { ...base, status: "error", message: error instanceof Error ? `개발계획 연결 점검: ${error.message}` : "개발계획 공급자 응답 또는 승인키를 확인해주세요." }; }
 }
 

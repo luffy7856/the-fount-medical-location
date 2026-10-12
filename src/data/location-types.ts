@@ -12,6 +12,12 @@ export type LivePlace = {
   distanceMeters: number;
   address?: string;
   url?: string;
+  medicalCapacity?: {
+    source: 'HIRA';
+    doctorCount?: number;
+    institutionType?: string;
+    referenceDate: string;
+  };
 };
 
 export type LiveMetric = {
@@ -55,6 +61,7 @@ export type GrowthForecastPoint = {
 };
 
 export type GrowthForecast = {
+  ageHistory?: Array<{ year: number; child?: number; youngAdult?: number; middleAge?: number; senior?: number }>;
   status: "available" | "insufficient_data" | "not_configured" | "error";
   source: "SGIS";
   model: "최근 3개년 선형 추세 외삽";
@@ -129,6 +136,8 @@ export type DevelopmentPlanItem = {
   name: string;
   category: string;
   status: string;
+  impact?: "housing" | "transport" | "commercial" | "renewal" | "other";
+  evidenceLevel?: "confirmed_schedule" | "official_zone" | "reference";
   latitude?: number;
   longitude?: number;
   distanceMeters?: number;
@@ -142,6 +151,9 @@ export type DevelopmentPlanData = {
   radiusMeters: number;
   plans: DevelopmentPlanItem[];
   score?: number;
+  scheduledPlanCount?: number;
+  referencePlanCount?: number;
+  scoreBasis?: string;
   message: string;
 };
 
@@ -190,6 +202,7 @@ export type LocationAnalysis = {
     displayName: string;
     latitude: number;
     longitude: number;
+    precision?: "address" | "street";
   };
   specialty: Specialty;
   radiusMeters: number;
@@ -215,8 +228,11 @@ export type LocationAnalysis = {
     transit: boolean;
     parking: boolean;
   };
+  /** 지도 검색의 포화 여부. 공식 집계의 완전성과는 별개입니다. */
+  mapCountLimits?: LocationAnalysis["countLimits"];
   metrics: LiveMetric[];
   observedScore: number;
+  scoreRange?: { lower: number; upper: number; partial: boolean; coverage: number };
   grade: string;
   confidence: number;
   insight: string;
