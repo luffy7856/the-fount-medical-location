@@ -35,6 +35,7 @@ export default function Home() {
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
       <LocationLab />
+      <aside style={{ padding: "24px", textAlign: "center", background: "#f5f4ef", color: "#102d3b" }} aria-label="입지분석 사용 안내"><a href="https://www.thefount.co.kr/tools/location">병원 입지분석 사용법·데이터 한계 안내 →</a></aside>
     </>
   );
 }
