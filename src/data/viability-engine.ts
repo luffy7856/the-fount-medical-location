@@ -22,7 +22,10 @@ const finite = (n: number, lo: number, hi: number) => {
   return n;
 };
 export function validateAssumptions(a: ViabilityAssumptions) {
-  for (const k of ['targetPopulation','inflowVisits','fixedCostWon','monthlyCapacity','startupCapitalWon','monthlyRentWon','monthlyDebtPrincipalWon'] as const) finite(a[k],0,1e10);
+  for (const k of ['targetPopulation','inflowVisits','monthlyCapacity'] as const) finite(a[k],0,1e10);
+  // Won amounts: opening inputs allow up to 1,000,000~10,000,000만원 per field (1e10~1e11원),
+  // so a 1e10 ceiling threw during render and blanked the page for large plans.
+  for (const k of ['fixedCostWon','startupCapitalWon','monthlyRentWon','monthlyDebtPrincipalWon'] as const) finite(a[k],0,1e13);
   for (const k of ['monthlyUtilization','retention','catchmentFactor','variableRate','uncertainty','riskMultiplier'] as const) finite(a[k],0,1);
   finite(a.revenuePerVisitWon,0,1e8); finite(a.entrantAttraction,.01,100); finite(a.outsideAttraction,.01,100);
   finite(a.futureDemandFactor,0,5);

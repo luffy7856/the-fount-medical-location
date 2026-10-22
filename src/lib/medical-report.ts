@@ -158,7 +158,8 @@ function locationBrief(r:Report,a:LocationAnalysis){
   r.cards([
     ['거주인구',d?fmt(d.residentPopulation)+'명':'확인 전','행정동 전체 기준'],
     ['직장인구',d?fmt(d.workerPopulation)+'명':'확인 전','사업체 종사자 기준'],
-    ['참고 입지점수',known>=4?a.observedScore+'/100':'판단 유보',known+'/6개 항목 반영 · 성공확률 아님']
+    // Same rule as the screen (clinicalScoreLabel): no scoreRange means the score was withheld, not 0.
+    ['참고 입지점수',a.scoreRange?a.observedScore+'/100':'판단 유보',known+'/6개 항목 반영 · 성공확률 아님']
   ]);
   r.callout(result.label,result.text);
   r.paragraph('이렇게 판단한 핵심 이유',{size:13,bold:true,gap:8});

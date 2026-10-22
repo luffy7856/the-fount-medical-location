@@ -9,6 +9,9 @@ export function serviceRegion(analysis: LocationAnalysis): 'seoul' | 'gyeonggi' 
   return 'outside';
 }
 
+/** Weights of the location score shown to users (sum 100). Missing factors are held at a neutral 50. */
+export const CLINICAL_SCORE_WEIGHTS: Record<string, number> = { '잠재환자 수요': 35, '경쟁환경': 25, '소비력': 10, '접근성': 15, '비용효율': 10, '성장성': 5 };
+
 /** No made-up age percentages. A recorded zero must remain zero. */
 export function clinicalDemand(analysis: LocationAnalysis) {
   const p = analysis.regionalProfile;
@@ -62,7 +65,7 @@ export function refineClinicalAnalysis(analysis: LocationAnalysis): LocationAnal
       note: analysis.countLimits?.matchingSpecialty
         ? '확인된 최소 병원 수를 기준으로 보수적으로 계산'
         : '환자층 규모와 같은 과 병원의 수·확인된 의원 규모' } : metric);
-  const weights: Record<string, number> = { '잠재환자 수요': 35, '경쟁환경': 25, '소비력': 10, '접근성': 15, '비용효율': 10, '성장성': 5 };
+  const weights = CLINICAL_SCORE_WEIGHTS;
   const present = metrics.filter(metric => metric.value !== null && Number.isFinite(metric.value));
   const totalWeight = present.reduce((sum, metric) => sum + (weights[metric.label] ?? 0), 0);
   const hasCoreEvidence = demand !== null && competitionScore !== null;

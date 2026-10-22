@@ -430,13 +430,16 @@ async function fetchKakaoPlaces(key: string, latitude: number, longitude: number
   const matchedHospitals = specialtyHospital.places.filter(place =>
     humanMedical(place) && matchesSpecialty(place.name, place.specialty, specialty));
   const places = Array.from(new Map([...hospitals, ...matchedHospitals, ...pharmacy.places, ...transit.places, ...parking.places].map(place => [place.id, place])).values()).sort((a, b) => a.distanceMeters - b.distanceMeters);
+  // Kakao SW8 lists each line of a transfer station separately ("강남역 2호선", "강남역 신분당선").
+  // Count stations, not platforms, so the access score and "지하철역 N곳" are not inflated.
+  const stationCount = new Set(transit.places.map(place => place.name.replace(/역\s.*$/, "역").trim())).size;
   return {
     places,
     totals: {
       medical: places.filter(place => place.kind === "hospital").length,
       matchingSpecialty: places.filter(place => place.kind === "hospital" && matchesSpecialty(place.name, place.specialty, specialty)).length,
       pharmacy: pharmacy.places.length,
-      transit: transit.places.length,
+      transit: stationCount,
       parking: parking.places.length
     },
     limits: {
@@ -813,7 +816,11 @@ export async function POST(request: NextRequest) {
       await loadOsmPlaces();
     }
     const [sgis, kakaoAdministrativeCode] = await Promise.all([sgisPromise, administrativeCodePromise]);
-    const administrativeCode = kakaoAdministrativeCode || sgis.demographics?.administrativeCode;
+    // Kakao returns the 행정안전부 행정동 code used by Seoul open data and R-ONE province lookup.
+    // SGIS uses its own numbering (e.g. 경기 31, 부산 21), so only its Seoul prefix (11) is shared;
+    // passing other SGIS codes would map 경기 rent to 울산(31) and similar wrong regions.
+    const sgisAdministrativeCode = sgis.demographics?.administrativeCode;
+    const administrativeCode = kakaoAdministrativeCode || (sgisAdministrativeCode?.startsWith("11") ? sgisAdministrativeCode : undefined);
     const [livingPopulation, externalData] = await Promise.all([
       settleWithin(
         fetchSeoulLivingPopulation({
