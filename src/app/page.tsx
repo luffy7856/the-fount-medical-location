@@ -4,7 +4,7 @@ const schema = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "@id": "https://www.thefount.co.kr/location#application",
-  name: "THE FOUNT Clinic Location Lab",
+  name: "THE FOUNT MEDICAL LOCATION",
   alternateName: "더파운트 병원 입지분석",
   url: "https://www.thefount.co.kr/location",
   applicationCategory: "BusinessApplication",
@@ -12,13 +12,13 @@ const schema = {
   inLanguage: "ko-KR",
   isAccessibleForFree: true,
   description:
-    "주소와 진료과를 기반으로 병원 개원 예정지의 잠재환자 수요, 경쟁환경, 소비력, 접근성, 비용효율, 성장성과 개원 수익성을 분석하는 더파운트 서비스",
+    "주소와 진료과를 기반으로 병원 개원 예정지 주변의 경쟁병원·접근성·지역 인구 통계를 공개 데이터로 확인하고, 입력한 운영조건으로 개원 수익성을 시뮬레이션하는 더파운트 서비스(생활인구·소비 자료는 서울 지역 제공)",
   featureList: [
     "진료과별 병원 입지점수",
     "경쟁병원 및 의료기관 분석",
     "생활인구와 접근성 분석",
     "3년 지역 전망",
-    "개원 수익성 분석",
+    "개원 수익성 시뮬레이션(입력값 기반)",
     "후보지 비교"
   ],
   publisher: {

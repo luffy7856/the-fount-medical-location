@@ -7,7 +7,7 @@ import "./fount-upgrade.css";
 
 const title = "병원 입지분석 | AI 병원 상권분석 | THE FOUNT";
 const description =
-  "주소와 진료과를 입력하면 유동인구, 경쟁병원, 접근성, 소비력, 성장성과 개원 수익성을 분석하는 더파운트 병원 입지분석 서비스입니다.";
+  "주소와 진료과를 입력하면 주변 경쟁병원·약국·교통 접근성과 지역 인구 통계를 공개 데이터로 확인하고, 입력한 운영조건으로 개원 수익성을 시뮬레이션해 보는 더파운트 병원 입지분석 서비스입니다. 생활인구·소비 자료는 서울 지역에서 제공됩니다.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.thefount.co.kr"),
@@ -24,14 +24,14 @@ export const metadata: Metadata = {
     description,
     type: "website",
     locale: "ko_KR",
-    siteName: "THE FOUNT Clinic Location Lab",
+    siteName: "THE FOUNT MEDICAL LOCATION",
     url: "/location",
     images: [
       {
         url: "/location/the-fount-medical-location-og.png",
         width: 1740,
         height: 907,
-        alt: "도시 지도와 의료 데이터로 병원 개원 후보지를 분석하는 THE FOUNT Clinic Location Lab"
+        alt: "도시 지도와 의료 데이터로 병원 개원 후보지를 분석하는 THE FOUNT MEDICAL LOCATION"
       }
     ]
   },

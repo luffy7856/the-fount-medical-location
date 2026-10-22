@@ -11,10 +11,10 @@ export function buildInsightEvidence(analysis: LocationAnalysis): InsightEvidenc
   const facts: InsightEvidence[] = [];
   const official = analysis.hiraMedical?.status === "available";
   addFact(facts, "location", "분석 조건", `${analysis.location.displayName.split(",")[0]} · ${analysis.specialty} · 반경 ${analysis.radiusMeters.toLocaleString()}m`, "사용자 선택");
-  addFact(facts, "score", "입지 참고점수", analysis.confidence < 90 ? `${analysis.observedScore}점 · 후보지 비교용` : `${analysis.observedScore}점 / ${analysis.grade}등급`, "확인된 지표 가중평균");
+  addFact(facts, "score", "입지 참고점수", !analysis.scoreRange ? "산정 보류 · 환자 수요나 경쟁 자료 부족(0점이 아님)" : analysis.confidence < 90 ? `${analysis.observedScore}점 · 후보지 비교용` : `${analysis.observedScore}점 / ${analysis.grade}등급`, "확인된 지표 가중평균");
   addFact(facts, "coverage", "데이터 반영범위", `${analysis.confidence}% (예측 정확도 아님)`, "THE FOUNT 분석 범위");
   addFact(facts, "medical", "전체 의료기관", `${analysis.counts.medical.toLocaleString()}곳${analysis.countLimits?.medical ? " 이상" : ""}`, official ? "HIRA 신고 기준" : `${analysis.provider === "kakao" ? "Kakao" : "OpenStreetMap"} 장소검색`);
-  addFact(facts, "specialty", `${analysis.specialty} 직접 경쟁기관`, `${analysis.counts.matchingSpecialty.toLocaleString()}곳${analysis.countLimits?.matchingSpecialty ? " 이상" : ""}`, "Kakao 장소명·분류 검색");
+  addFact(facts, "specialty", `${analysis.specialty} 직접 경쟁기관`, `${analysis.counts.matchingSpecialty.toLocaleString()}곳${analysis.countLimits?.matchingSpecialty ? " 이상" : ""}`, official && analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? "HIRA 기관종별 기준" : `${analysis.provider === "kakao" ? "Kakao" : "OpenStreetMap"} 장소명·분류 검색`);
   addFact(facts, "pharmacy", "약국", `${analysis.counts.pharmacy.toLocaleString()}곳${analysis.countLimits?.pharmacy ? " 이상" : ""}`, analysis.hiraMedical?.pharmacyCount !== undefined ? "HIRA 약국정보" : "장소검색");
   addFact(facts, "transit", "지하철역", `${analysis.counts.transit.toLocaleString()}곳`, "지도 장소검색");
   addFact(facts, "parking", "주차시설", `${analysis.counts.parking.toLocaleString()}곳${analysis.countLimits?.parking ? " 이상" : ""}`, "지도 장소검색");

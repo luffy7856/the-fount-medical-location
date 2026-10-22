@@ -191,6 +191,6 @@ export default function LiveMap({ analysis, activeKinds, populationActive, selec
       radius={8}
       bubblingMouseEvents={false}
       pathOptions={{ color: "#fff", fillColor: "#d28c24", fillOpacity: .95, weight: 3, dashArray: "3 2" }}
-    ><Popup><strong>{plan.name}</strong><br />{plan.category}<br />{plan.status}{plan.distanceMeters !== undefined ? <><br />약 {plan.distanceMeters.toLocaleString()}m</> : null}<br /><small>VWorld 공식 계획공간 정보</small><AnalyzePopupLocation latitude={plan.latitude!} longitude={plan.longitude!} onSelect={onSelectCoordinate} /></Popup></CircleMarker>)}
+    ><Popup><strong>{plan.name}</strong><br />{plan.category}<br />{plan.status}{plan.distanceMeters !== undefined ? <><br />약 {plan.distanceMeters.toLocaleString()}m</> : null}<br /><small>{analysis.developmentPlans?.source || "개발계획 공간정보"}</small><AnalyzePopupLocation latitude={plan.latitude!} longitude={plan.longitude!} onSelect={onSelectCoordinate} /></Popup></CircleMarker>)}
   </MapContainer>;
 }

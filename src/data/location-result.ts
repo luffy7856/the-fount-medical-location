@@ -19,7 +19,8 @@ export function distinctNotes(notes: string[], limit = 6) {
 }
 
 export function locationResult(a: LocationAnalysis) {
-  const enough = a.confidence >= 90 && a.metrics.filter(m => m.value !== null).length >= 4;
+  // An unscored site (no scoreRange → observedScore 0) must not be judged as a weak site.
+  const enough = Boolean(a.scoreRange) && a.confidence >= 90 && a.metrics.filter(m => m.value !== null).length >= 4;
   const label = !enough ? '다른 후보지와 비교하며 검토하세요' : a.observedScore >= 75 ? '현장 확인을 우선 진행할 후보지입니다' : a.observedScore >= 60 ? '장점과 부담을 비교한 뒤 결정하세요' : '다른 자리도 함께 찾아보세요';
   const text = !enough ? '확인된 자료로 후보지의 특징은 볼 수 있지만, 계약을 결정하기에는 아직 확인할 조건이 남아 있습니다.' : a.observedScore >= 75 ? '확인된 수요와 운영 조건에서 좋은 신호가 있습니다. 건물 접근성과 실제 임대조건까지 맞는지 확인해보세요.' : a.observedScore >= 60 ? '유리한 조건과 부담 요인이 함께 있습니다. 진료 차별화와 월 고정비를 다른 후보지와 비교해보세요.' : '현재 확인된 조건에서는 부담이 큽니다. 같은 진료과의 다른 후보지와 비용·환자층을 비교해보세요.';
   const strengths = a.aiInterpretation?.strengths.map(item => item.text) || a.strengths;

@@ -16,7 +16,7 @@ import { FinancialPlanningPanel } from "./financial-planning-panel";
 import { ViabilityPanel } from "./viability-panel";
 import { locationResult, locationNarrative } from "@/data/location-result";
 import { populationScoreCap } from "@/data/location-score-v2";
-import { refineClinicalAnalysis, clinicalScoreLabel } from '@/data/clinical-evaluation';
+import { refineClinicalAnalysis, clinicalScoreLabel, CLINICAL_SCORE_WEIGHTS } from '@/data/clinical-evaluation';
 import { ForecastDrivers } from './forecast-drivers';
 
 const LiveMap = dynamic(() => import("./live-map"), { ssr: false, loading: () => <div className="map-loading"><Activity className="spin" /> 지도를 불러오는 중</div> });
@@ -125,8 +125,8 @@ function DecisionEvidence({ analysis }: { analysis: LocationAnalysis }) {
   const result = locationResult(analysis);
   const connected = analysis.metrics.filter(metric => metric.value !== null);
   const excluded = analysis.metrics.filter(metric => metric.value === null).map(metric => metric.label);
-  const connectedWeight = connected.reduce((sum, metric) => sum + (FACTOR_WEIGHTS[metric.label] || 0), 0);
-  const decision = analysis.confidence < 90
+  const connectedWeight = connected.reduce((sum, metric) => sum + (CLINICAL_SCORE_WEIGHTS[metric.label] || 0), 0);
+  const decision = !analysis.scoreRange || analysis.confidence < 90
     ? { label: "비교 후보로 보세요", tone: "hold", text: "지금 바로 계약을 결정하기보다, 같은 진료과의 다른 후보지 한두 곳과 나란히 비교하기 좋은 단계입니다." }
     : analysis.observedScore >= 75
       ? { label: "우선 현장확인 후보", tone: "positive", text: "수요와 접근성 등에서 좋은 신호가 더 많습니다. 실제 건물과 경쟁병원을 확인할 가치가 있는 후보지입니다." }
@@ -143,10 +143,10 @@ function DecisionEvidence({ analysis }: { analysis: LocationAnalysis }) {
       <div className="evidence-table">
         <div className="head"><span>판단항목</span><span>가중치</span><span>점수·근거</span></div>
         {connected.map(metric => <div key={metric.label}>
-          <b>{metric.label}</b><span>{FACTOR_WEIGHTS[metric.label]}%</span><p><strong>{metric.label === "경쟁환경" && metric.value === 0 ? "과밀" : metric.value}</strong><small>{metric.note}</small></p>
+          <b>{metric.label}</b><span>{CLINICAL_SCORE_WEIGHTS[metric.label]}%</span><p><strong>{metric.label === "경쟁환경" && metric.value === 0 ? "과밀" : metric.value}</strong><small>{metric.note}</small></p>
         </div>)}
       </div>
-      <div className="weight-coverage"><div><i style={{ width: `${connectedWeight}%` }} /></div><span>전체 가중치 중 {connectedWeight}% 반영{excluded.length ? ` · ${excluded.join("·")}은 현재 산정에서 제외` : ""}</span></div>
+      <div className="weight-coverage"><div><i style={{ width: `${connectedWeight}%` }} /></div><span>전체 가중치 중 {connectedWeight}% 반영{excluded.length ? ` · ${excluded.join("·")}은 자료가 없어 중립값 50으로 계산` : ""}</span></div>
     </details>
   </section>;
 }
@@ -155,11 +155,11 @@ function populationShare(value: number | undefined, total: number | undefined) {
   return value !== undefined && total ? `${Math.round(value / total * 1000) / 10}%` : "—";
 }
 
-function RegionalProfileBlock({ analysis }: { analysis: LocationAnalysis }) {
+function RegionalProfileBlock({ analysis, number = "02" }: { analysis: LocationAnalysis; number?: string }) {
   const result = locationResult(analysis);
   const profile = analysis.regionalProfile;
   const total = analysis.demographics?.residentPopulation;
-  if (!profile) return <section className="panel-section regional-profile"><div className="panel-title"><div><span>02 · PATIENTS & AREA</span><h3>이 지역에는 어떤 환자가 있나요?</h3></div></div><p className="score-disclaimer">이 지역의 연령·성별 자료가 충분하지 않아 환자층을 단정하지 않았습니다. 실제 진료 대상과 주변 주거·직장 생활권을 확인해보세요.</p></section>;
+  if (!profile) return <section className="panel-section regional-profile"><div className="panel-title"><div><span>{number} · PATIENTS & AREA</span><h3>이 지역에는 어떤 환자가 있나요?</h3></div></div><p className="score-disclaimer">이 지역의 연령·성별 자료가 충분하지 않아 환자층을 단정하지 않았습니다. 실제 진료 대상과 주변 주거·직장 생활권을 확인해보세요.</p></section>;
   const facts = [
     ["남성", populationShare(profile.malePopulation, total)],
     ["여성", populationShare(profile.femalePopulation, total)],
@@ -171,25 +171,42 @@ function RegionalProfileBlock({ analysis }: { analysis: LocationAnalysis }) {
     ["어린이집·유치원", profile.childcareFacilities !== undefined ? `${profile.childcareFacilities}곳` : "—"]
   ];
   return <section className="panel-section regional-profile">
-    <div className="panel-title"><div><span>02 · PATIENTS & AREA</span><h3>이 지역에는 어떤 환자가 있나요?</h3></div></div>
+    <div className="panel-title"><div><span>{number} · PATIENTS & AREA</span><h3>이 지역에는 어떤 환자가 있나요?</h3></div></div>
     <article className="region-character"><span>{profile.areaName} · {profile.year}년</span><h3>{profile.character}</h3></article>
     <div className="regional-facts">{facts.map(([label, value]) => <div key={label}><span>{label}</span><b>{value}</b></div>)}</div>
     <details className="evidence-details"><summary>인구와 시설 자료 기준</summary><p className="factor-source">인구는 {profile.year}년 {profile.areaName} 전체 주민입니다. 학교·보육시설은 주변 {analysis.radiusMeters.toLocaleString()}m의 지도 검색 결과입니다. 표시된 연령 구간은 전체 연령을 모두 포함하지 않습니다.</p></details>
   </section>;
 }
 
-function OperatingResult({ analysis, showContractChecks = true }: { analysis: LocationAnalysis; showContractChecks?: boolean }) {
+function OperatingResult({ analysis, showContractChecks = true, number = 3 }: { analysis: LocationAnalysis; showContractChecks?: boolean; number?: number }) {
   const result = locationResult(analysis);
   return <>
-    <section className="panel-section operating-result"><div className="panel-title"><div><span>03 · OPERATING CONDITIONS</span><h3>환자가 오기 쉽고, 운영하기 좋은 자리인가요?</h3></div></div>
+    <section className="panel-section operating-result"><div className="panel-title"><div><span>{String(number).padStart(2, "0")} · OPERATING CONDITIONS</span><h3>환자가 오기 쉽고, 운영하기 좋은 자리인가요?</h3></div></div>
       <MetricBars metrics={analysis.metrics} />
       <details className="evidence-details"><summary>항목별 데이터 근거 보기</summary>{analysis.metrics.filter(metric=>metric.value!==null).map(metric=><p className="factor-source" key={metric.label}><b>{metric.label}</b> · {metric.note}</p>)}</details>
     </section>
     <section className="panel-section location-narrative"><div className="panel-title"><div><span>이 자리의 특징</span><h3>{analysis.specialty} 개원 관점에서 이 지역은 어떤 곳인가요?</h3></div></div>{analysis.analyzedAt === new Date(0).toISOString() ? <p className="narrative-intro">주소 분석을 완료하거나 지도에서 지점을 선택하면 이 지역의 특징을 보여드립니다.</p> : <><p className="narrative-intro">주변 환자층, 생활시간, 같은 과 병원, 교통과 앞으로의 변화를 차례로 살펴봤습니다.</p>{locationNarrative(analysis).map(section=><article key={section.title}><h4>{section.title}</h4><p>{section.text}</p><details className="narrative-source"><summary>자료 기준 보기</summary><small>{section.source}</small></details></article>)}</>}</section>
-    {showContractChecks && <section className="panel-section contract-checks"><div className="panel-title"><div><span>04 · BEFORE YOU SIGN</span><h3>계약 전에 무엇을 확인해야 하나요?</h3></div></div>
+    {showContractChecks && <section className="panel-section contract-checks"><div className="panel-title"><div><span>{String(number + 1).padStart(2, "0")} · BEFORE YOU SIGN</span><h3>계약 전에 무엇을 확인해야 하나요?</h3></div></div>
       {result.checks.map((check, index) => <article key={check.title}><h4><span>{String(index + 1).padStart(2, '0')}</span>{check.title}</h4><p>{check.action}</p><small>{check.decision}</small></article>)}
     </section>}
   </>;
+}
+
+function formatReferencePeriod(value: string) {
+  const quarter = /^(\d{4})([1-4])$/.exec(value.trim());
+  return quarter ? `${quarter[1]}년 ${quarter[2]}분기` : value;
+}
+
+/** Source and as-of labels only from what the response actually carries; nothing is inferred. */
+function dataSourceLabels(analysis: LocationAnalysis) {
+  const labels = [`주변 지도 · ${analysis.provider === "kakao" ? "Kakao Local" : "OpenStreetMap"} · ${formatAnalysisTime(analysis.analyzedAt)} 조회`];
+  if (analysis.hiraMedical?.status === "available") labels.push(`의료기관 수 · 건강보험심사평가원 · ${analysis.hiraMedical.referenceDate} 조회`);
+  if (analysis.demographics) labels.push(`거주·직장인구 · SGIS · ${analysis.demographics.year}년 통계`);
+  if (analysis.livingPopulation?.status === "available") labels.push(`생활인구 · 서울시 · ${analysis.livingPopulation.referenceDate ?? "기준일 미제공"}${analysis.livingPopulation.hour !== undefined ? ` ${String(analysis.livingPopulation.hour).padStart(2, "0")}시` : ""}`);
+  if (analysis.consumerPower?.status === "available") labels.push(`소비 수준 · 서울시 상권분석서비스 · ${analysis.consumerPower.referencePeriod ? formatReferencePeriod(analysis.consumerPower.referencePeriod) : "기준기간 미제공"}`);
+  if (analysis.rentMarket?.status === "available") labels.push(`상가 임대료 · ${analysis.rentMarket.source} · ${analysis.rentMarket.referenceDate ?? "기준일 미제공"}`);
+  if (analysis.developmentPlans?.status === "available") labels.push(`개발계획 · ${analysis.developmentPlans.source} · ${analysis.developmentPlans.referenceDate ? `${analysis.developmentPlans.referenceDate} 조회` : "기준일 미제공"}`);
+  return labels;
 }
 
 function formatCount(analysis: LocationAnalysis, key: keyof LocationAnalysis["counts"]) {
@@ -259,11 +276,11 @@ function OverviewPanel({ analysis, onTab, aiLoading, embedded = false }: { analy
     {!embedded && <div className="score-hero live-score"><div className="gauge" style={{ background: `conic-gradient(#35d0b0 0 ${analysis.observedScore}%,rgba(255,255,255,.15) ${analysis.observedScore}%)` }}><div><b>{analysis.observedScore || "—"}</b><small>/100</small></div></div><div><span>자리의 기본 조건</span><h3>{!analysis.observedScore ? "주요 지역 자료를 더 확인해야 합니다" : analysis.confidence < 90 ? "다른 자리와 비교해보세요" : `${analysis.grade} 등급`}</h3><p>{analysis.observedScore ? <>현재 확인할 수 있는 자료로 계산한 <b>참고점수</b></> : "환자 수요와 같은 과 경쟁이 확인돼야 점수를 보여드립니다."}</p></div><div className="confidence"><ShieldCheck /><span>확인한 자료</span><b>{analysis.confidence}%</b><small>자료 확보 정도</small></div></div>}
     {!embedded && analysis.observedScore > 0 && <p className="score-disclaimer">이 점수는 다른 자리와 비교할 때 참고해주세요. 실제 개원 판단은 건물과 임대 조건을 함께 확인해야 합니다.</p>}
     <div className="stats-grid">{stats.map(([label, value, meta]) => <article key={label}><span>{label}</span><b>{value}</b><small>{meta}</small></article>)}</div>
-    <RegionalProfileBlock analysis={analysis} />
-    <OperatingResult analysis={analysis} showContractChecks={!embedded} />
+    <RegionalProfileBlock analysis={analysis} number={embedded ? "01" : "02"} />
+    <OperatingResult analysis={analysis} showContractChecks={!embedded} number={embedded ? 2 : 3} />
     {!embedded && <button className="profitability-entry" type="button" onClick={() => onTab("profitability")}><span><Calculator /><b>수익성은 입력값으로 직접 확인하세요</b><small>환자 수와 운영비를 입력하면 손익분기점·잔여현금·회수기간을 비교할 수 있습니다.</small></span><ChevronRight /></button>}
     {!embedded && <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><a className="next-step-link" href="https://www.thefount.co.kr/" target="_blank" rel="noopener noreferrer">정밀 개원분석 상담하기 <ArrowRight /></a></section>}
-    {!embedded && <section className="source-note"><b>확인에 사용한 자료</b><div><span>주변 지도 정보</span>{analysis.hiraMedical?.status === "available" && <span>건강보험심사평가원</span>}{analysis.demographics && <span>지역 인구 {analysis.demographics.year}</span>}{analysis.livingPopulation?.status === "available" && <span>시간대별 주변 인구</span>}{analysis.consumerPower?.status === "available" && <span>지역 소비 수준</span>}{analysis.rentMarket?.status === "available" && <span>상가 임대료</span>}{analysis.developmentPlans?.status === "available" && <span>주변 개발계획</span>}</div><small>{formatAnalysisTime(analysis.analyzedAt)} 기준 · 공개자료의 등록 시점에 따라 실제 현장과 차이가 있을 수 있습니다.</small></section>}
+    {analysis.analyzedAt !== new Date(0).toISOString() && <section className="source-note"><b>확인에 사용한 자료와 기준일</b><div>{dataSourceLabels(analysis).map(label => <span key={label}>{label}</span>)}</div><small>{formatAnalysisTime(analysis.analyzedAt)} 분석 · 공개자료의 등록·갱신 시점에 따라 실제 현장과 차이가 있을 수 있습니다.</small></section>}
     <PrintAppendix analysis={analysis} />
   </div>;
 }
@@ -594,6 +611,11 @@ export default function LocationLab() {
   };
   const removeSavedAnalysis = (id: string) => setSaved(current => current.filter(item => analysisStorageId(item) !== id));
   const radiusLabel = useMemo(() => radiusMeters >= 1000 ? `${radiusMeters / 1000}km` : `${radiusMeters}m`, [radiusMeters]);
+  // Count only layers the map actually draws: plan markers need coordinates and
+  // the population grid needs an available living-population result.
+  const developmentRendered = analysis.developmentPlans?.status === "available" && analysis.developmentPlans.plans.some(plan => plan.latitude !== undefined && plan.longitude !== undefined);
+  const populationRendered = populationActive && analysis.livingPopulation?.status === "available";
+  const visibleLayerCount = LIVE_LAYERS.filter(layer => activeKinds.has(layer.id) && (layer.id !== "development" || developmentRendered)).length + (populationRendered ? 1 : 0);
 
   useEffect(() => {
     const administrativeCode = analysis.livingPopulation?.administrativeCode || analysis.demographics?.administrativeCode;
@@ -640,7 +662,7 @@ export default function LocationLab() {
       <section className="map-area">
         <LiveMap analysis={analysis} activeKinds={activeKinds} populationActive={populationActive} selected={selectedPlace} onPlace={place => { setSelectedPlace(place); if (place.kind === "hospital") setTab("competitors"); }} onSelectCoordinate={(latitude, longitude) => void runAnalysis({ latitude, longitude })} />
         <div className="map-summary"><span>{analysis.specialty} · 주변 {radiusLabel}</span><b>의료기관 {formatCount(analysis, "medical")}</b><em>지도 정보</em></div>
-<div className="layer-control"><button className="layer-trigger" onClick={() => setLayerOpen(!layerOpen)}><Layers3 /> 지도에서 볼 정보 <b>{activeKinds.size + (populationActive ? 1 : 0)}</b><ChevronDown /></button>{layerOpen && <div className="layer-menu"><div><b>지도에서 볼 정보</b><button onClick={() => setLayerOpen(false)}><X /></button></div><label><input type="checkbox" checked={populationActive} onChange={() => setPopulationActive(current => !current)} /><i className="population-dot" /><span>시간대별 주변 인구</span><em>{analysis.livingPopulation?.status === "available" ? "확인됨" : analysis.livingPopulation?.status === "not_configured" ? "준비 중" : analysis.livingPopulation?.status === "unsupported" ? "제공 지역 아님" : analysis.livingPopulation?.status === "no_data" ? "자료 없음" : "확인 중"}</em></label>{LIVE_LAYERS.map(layer => <label key={layer.id}><input type="checkbox" checked={activeKinds.has(layer.id)} onChange={() => toggleLayer(layer.id)} /><i style={{ background: layer.color }} /><span>{layer.label}</span></label>)}<small>{analysis.livingPopulation?.message || "지도에서 원하는 곳을 누른 뒤 ‘이 지역 분석하기’를 선택하세요."}</small></div>}</div>
+<div className="layer-control"><button className="layer-trigger" onClick={() => setLayerOpen(!layerOpen)}><Layers3 /> 지도에서 볼 정보 <b>{visibleLayerCount}</b><ChevronDown /></button>{layerOpen && <div className="layer-menu"><div><b>지도에서 볼 정보</b><button onClick={() => setLayerOpen(false)}><X /></button></div><label><input type="checkbox" checked={populationActive} onChange={() => setPopulationActive(current => !current)} /><i className="population-dot" /><span>시간대별 주변 인구</span><em>{analysis.livingPopulation?.status === "available" ? "확인됨" : analysis.livingPopulation?.status === "not_configured" ? "준비 중" : analysis.livingPopulation?.status === "unsupported" ? "제공 지역 아님" : analysis.livingPopulation?.status === "no_data" ? "자료 없음" : "확인 중"}</em></label>{LIVE_LAYERS.map(layer => <label key={layer.id}><input type="checkbox" checked={activeKinds.has(layer.id)} onChange={() => toggleLayer(layer.id)} /><i style={{ background: layer.color }} /><span>{layer.label}</span>{layer.id === "development" && !developmentRendered && <em>{analysis.developmentPlans?.status === "not_configured" ? "준비 중" : "자료 없음"}</em>}</label>)}<small>{analysis.livingPopulation?.message || "지도에서 원하는 곳을 누른 뒤 ‘이 지역 분석하기’를 선택하세요."}</small></div>}</div>
         {analysis.livingPopulation && <div className={`timeline population-timeline ${analysis.livingPopulation.status}`}>
           <button type="button" disabled={analysis.livingPopulation.status !== "available"} onClick={() => setPlaying(current => !current)} title="시간대 재생">{populationLoading ? <Activity className="spin" /> : playing ? <Pause /> : <Play />}</button>
           <div className="time-copy"><b>{analysis.livingPopulation.status === "available" ? `${String(populationHour).padStart(2, "0")}:00` : "생활인구"}</b><span>{analysis.livingPopulation.status === "available" ? `${analysis.livingPopulation.total?.toLocaleString()}명 · ${analysis.livingPopulation.spatialUnit} ${analysis.livingPopulation.spatialUnit === "250m 격자" ? "반경 합계" : "집계"}` : analysis.livingPopulation.message}</span></div>
@@ -648,10 +670,10 @@ export default function LocationLab() {
           <small className="population-provenance">서울특별시 서울 생활인구 · {analysis.livingPopulation.referenceDate || populationDate} · {analysis.livingPopulation.spatialUnit === "250m 격자" ? "250m 격자 실제값" : "행정동 실제 총계 · 지도 격자는 시설 접근성 기반 공간분포 추정"}</small>
         </div>}
         {populationActive && analysis.livingPopulation?.status === "available" && <div className="population-density-legend"><b>{analysis.livingPopulation.spatialUnit === "250m 격자" ? "250m 격자 실제 생활인구" : "생활인구 추정 밀도지수"}</b>{analysis.livingPopulation.densityBreaks ? <><span><i className="density-low" />낮음 ≤{analysis.livingPopulation.densityBreaks[0].toLocaleString()}명</span><span><i className="density-normal" />보통 ≤{analysis.livingPopulation.densityBreaks[1].toLocaleString()}명</span><span><i className="density-high" />높음 ≤{analysis.livingPopulation.densityBreaks[2].toLocaleString()}명</span><span><i className="density-very-high" />매우 높음 &gt;{analysis.livingPopulation.densityBreaks[2].toLocaleString()}명</span><small>색상 기준은 선택 반경 내 격자 사분위수 · 격자 클릭 시 실제 숫자 확인</small></> : <><span><i className="density-low" />낮음 0–39</span><span><i className="density-normal" />보통 40–59</span><span><i className="density-high" />높음 60–79</span><span><i className="density-very-high" />매우 높음 80–100</span><small>격자 클릭 시 숫자 확인 · 행정동 실제 총계 기반 공간분포 추정</small></>}</div>}
-        <div className={`live-map-note ${analysis.livingPopulation ? "with-timeline" : ""}`}><span><i className="hospital-dot" /> 의료기관</span><span><i className="pharmacy-dot" /> 약국</span><span><i className="transit-dot" /> 지하철역</span><span><i className="parking-dot" /> 주차</span>{analysis.livingPopulation?.status === "available" && <span><i className="population-dot" /> 시간대별 인구 분포</span>}</div>
+        <div className={`live-map-note ${analysis.livingPopulation ? "with-timeline" : ""}`}>{activeKinds.has("hospital") && <span><i className="hospital-dot" /> 의료기관</span>}{activeKinds.has("pharmacy") && <span><i className="pharmacy-dot" /> 약국</span>}{activeKinds.has("transit") && <span><i className="transit-dot" /> 지하철역</span>}{activeKinds.has("parking") && <span><i className="parking-dot" /> 주차</span>}{activeKinds.has("development") && developmentRendered && <span><i style={{ background: "#d28c24" }} /> 개발·계획 공간</span>}{populationRendered && <span><i className="population-dot" /> 시간대별 인구 분포</span>}</div>
       </section>
       <aside ref={analysisPanelRef} className="analysis-panel">
-        <div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>발행 {formatAnalysisTime(analysis.analyzedAt)}</small></div>
+        <div className="print-report-header"><Brand /><span>병원 입지·개원수익성 리포트</span><small>{analysis.analyzedAt === new Date(0).toISOString() ? "주소 분석 전" : `발행 ${formatAnalysisTime(analysis.analyzedAt)}`}</small></div>
         <div className="sheet-handle" />
         <nav className="panel-tabs" aria-label="분석 결과 메뉴">
           <button type="button" className={tab === "overview" ? "active" : ""} aria-pressed={tab === "overview"} onClick={() => changeTab("overview")}><BarChart3 /><span>입지·개원 판단</span></button>

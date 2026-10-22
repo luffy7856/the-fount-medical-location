@@ -383,7 +383,6 @@
   "더파운트의 정밀 개원분석에서 실제 임대조건과 진료계획을 검토할 수 있습니다.": "You can review actual rental conditions and treatment plans through THE FOUNT's detailed analysis of medical practice.",
   "데이터 반영범위": "Data reflection range",
   "도로 주변을 찾았습니다. 정확한 건물 위치는 지도에서 클릭해 지정해주세요.": "I looked around the road. Please specify the exact building location by clicking on the map.",
-  "도시 지도와 의료 데이터로 병원 개원 후보지를 분석하는 THE FOUNT Clinic Location Lab": "THE FOUNT Clinic Location Lab analyzes hospital opening candidates using city maps and medical data",
   "동일 진료과의 건물 내 추가 입점 제한을 계약서에 넣을 수 있나요?": "Can a contract include restrictions on additional stores within the same department building?",
   "두 가지를 함께 보면": "Looking at the two together",
   "두 가지를 함께 판단할 자료를 확인하고 있습니다.": "We are reviewing the data needed to assess both factors together.",
@@ -1210,5 +1209,8 @@
   "후보지 선택 닫기": "Close candidate site selection",
   "후보지 주소": "Candidate address",
   "후보지로 검토할 만합니다. 실제 건물 조건도 확인해보세요.": "It is worth considering as a candidate site. Also check the actual building conditions.",
-  "후보지로 검토할 수 있지만, 운영비부터 다시 확인해야 합니다.": "Candidate sites can be reviewed, but operating costs must first be checked."
+  "후보지로 검토할 수 있지만, 운영비부터 다시 확인해야 합니다.": "Candidate sites can be reviewed, but operating costs must first be checked.",
+  "주소 분석 전": "Before analysis",
+  "확인에 사용한 자료와 기준일": "Sources used and reference dates",
+  "도시 지도와 의료 데이터로 병원 개원 후보지를 분석하는 THE FOUNT MEDICAL LOCATION": "THE FOUNT MEDICAL LOCATION analyzes hospital opening candidates using city maps and medical data"
 }
