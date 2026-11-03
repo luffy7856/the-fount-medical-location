@@ -9,6 +9,7 @@ import './financial-planning-layout.css';
 import { FiveYearTaxPlan } from './five-year-tax-plan';
 import { openingInputsWithVisitRevenue } from '@/data/specialty-revenue';
 import { applyAutomaticOperatingCosts, regionalOperatingCostBasis } from '@/data/operating-costs';
+import { IS_TOSS } from '@/lib/toss-env';
 
 const money=(n:number)=>`${Math.round(n).toLocaleString()}만원`;
 const recovery=(n:number|null)=>n===null?'10년 내 미회수':n===0?'초기 자기자금 없음':`${n}개월`;
@@ -71,7 +72,7 @@ export function FinancialPlanningPanel({analysis,inputs,onChange}:{analysis:Fina
         <article><span>예상 관리비</span><strong>{money(operatingInputs.monthlyManagementManwon)}</strong><small>{inputs.areaPyeong}평 × 평당 {costBasis.managementPerPyeongManwon}만원</small></article>
         <article><span>예상 인건비</span><strong>{money(operatingInputs.monthlyPayrollManwon)}</strong><small>{inputs.staffCount}명 × 1명당 {costBasis.payrollPerStaffManwon}만원</small></article>
       </div> : <div className="fp-inputs fp-manual-costs">{manualCosts.map(field)}</div>}
-      <div className="fp-payroll-guide"><div><b>직원 급여와 병원 부담금이 궁금하신가요?</b><p>급여, 4대 보험과 퇴직금까지 더파운트 인건비 계산기에서 확인한 뒤 위 인건비에 입력하면 더 정확해집니다.</p></div><a href="https://payroll.thefount.co.kr/payroll" target="_blank" rel="noopener noreferrer">인건비 바로 계산하기 <ArrowUpRight size={17}/></a></div>
+      {!IS_TOSS && <div className="fp-payroll-guide"><div><b>직원 급여와 병원 부담금이 궁금하신가요?</b><p>급여, 4대 보험과 퇴직금까지 더파운트 인건비 계산기에서 확인한 뒤 위 인건비에 입력하면 더 정확해집니다.</p></div><a href="https://payroll.thefount.co.kr/payroll" target="_blank" rel="noopener noreferrer">인건비 바로 계산하기 <ArrowUpRight size={17}/></a></div>}
       <div className="fp-cost-total"><div><span>현재 계산에 반영한 월 고정비</span><small>월세 + 관리비 + 인건비 + 홍보비 + 그 밖의 고정비</small></div><strong>{money(monthlyFixedTotal)}</strong></div>
       <p className="fp-help">자동 인건비에는 급여와 병원 부담분을 합친 평균값을 사용합니다. 직종·경력에 따라 달라지므로 채용계획이 정해지면 실제 금액으로 바꿔주세요.</p>
     </div>
@@ -95,6 +96,6 @@ export function FinancialPlanningPanel({analysis,inputs,onChange}:{analysis:Fina
       <summary><div><h3>5년 매출과 세금 계획</h3><small>연도별 성장 · 운영비 증가 · 종합소득세 · 세후 잔여현금</small></div><span className="fp-fold-action"><span className="fp-fold-closed">자세히 보기</span><span className="fp-fold-open">접기</span><ChevronDown size={20}/></span></summary>
       <div className="fp-result-content"><FiveYearTaxPlan inputs={calculationInputs} onChange={next=>onChange(visitRevenue.automatic?{...next,revenuePerPatient:inputs.revenuePerPatient}:next)} factor={variants[scenario].factor} scenario={variants[scenario].name}/></div>
     </details>
-    <footer className="fp-foot">이 결과는 입력 가정에 따른 사전 검토입니다. 계약 전 실제 임대 견적, 인력 계획, 수가·청구 조건과 대출 상환표로 다시 확인해주세요. 다운로드 보고서는 기준 시나리오의 월별 결과와 세 시나리오 비교를 담습니다.</footer>
+    <footer className="fp-foot">{IS_TOSS ? "이 결과는 입력 가정에 따른 사전 검토입니다. 계약 전 실제 임대 견적, 인력 계획, 수가·청구 조건과 대출 상환표로 다시 확인해주세요." : "이 결과는 입력 가정에 따른 사전 검토입니다. 계약 전 실제 임대 견적, 인력 계획, 수가·청구 조건과 대출 상환표로 다시 확인해주세요. 다운로드 보고서는 기준 시나리오의 월별 결과와 세 시나리오 비교를 담습니다."}</footer>
   </section>;
 }

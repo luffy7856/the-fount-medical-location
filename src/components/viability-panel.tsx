@@ -14,6 +14,7 @@ import { openingInputsWithVisitRevenue } from '@/data/specialty-revenue';
 import { applyAutomaticOperatingCosts } from '@/data/operating-costs';
 import { AnalysisSavePanel } from './analysis-save-panel';
 import './viability.css';
+import { IS_TOSS } from '@/lib/toss-env';
 
 const SENIOR_SPECIALTIES = new Set(['내과', '정형외과', '비뇨기과', '안과', '이비인후과', '한의원']);
 const SITE_CHECK_GROUPS = [
@@ -310,7 +311,7 @@ export function ViabilityPanel({ analysis, inputs, onLoad, onOpenProfitability, 
     <details className="viability-site">
       <summary>
         <span className="viability-site-icon" aria-hidden="true">현장</span>
-        <span><small>FIELD VISIT NOTE</small><b>현장에서 확인할 내용</b><em>임장 체크리스트와 사진을 한 곳에 남겨보세요.</em></span>
+        <span><small>FIELD VISIT NOTE</small><b>현장에서 확인할 내용</b><em>{IS_TOSS ? "임장 체크리스트와 메모를 한 곳에 남겨보세요." : "임장 체크리스트와 사진을 한 곳에 남겨보세요."}</em></span>
         <strong>{checkedCount}/{SITE_CHECK_COUNT}</strong>
       </summary>
       <div className="viability-site-body">
@@ -321,7 +322,7 @@ export function ViabilityPanel({ analysis, inputs, onLoad, onOpenProfitability, 
             <label key={id} className={checked[id] ? 'checked' : ''}><input type="checkbox" checked={Boolean(checked[id])} onChange={() => toggleCheck(id)} /><span>{label}</span></label>)}</div>
         </section>)}</div>
         <label className="viability-site-notes"><b>현장 메모</b><span>중개사에게 확인할 내용, 주변 분위기, 건물의 장·단점을 자유롭게 적어보세요.</span><textarea value={siteNotes} onChange={event => updateSiteNotes(event.target.value)} maxLength={2000} rows={5} placeholder="예) 점심시간 직장인 유동이 많음. 주차장 입구가 좁어 SUV 진입은 추가 확인 필요." /><small>{siteNotes.length.toLocaleString()} / 2,000자</small></label>
-        <div className="viability-photo-area">
+        {!IS_TOSS && <><div className="viability-photo-area">
           <div><b>현장 사진</b><p>건물 전경, 간판 위치, 출입구, 주차장, 엘리베이터, 주변 상권을 찍어두면 후보지 비교에 도움이 됩니다.</p></div>
           <label className="viability-photo-input">사진 첨부하기
             <input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={event => {
@@ -334,12 +335,12 @@ export function ViabilityPanel({ analysis, inputs, onLoad, onOpenProfitability, 
         </div>
         {photos.length > 0 && <div className="viability-photos">{photos.map(photo =>
           <figure key={photo.url}><Image src={photo.url} alt={`현장 사진: ${photo.name}`} width={480} height={320} unoptimized /><figcaption>{photo.name}</figcaption><button type="button" onClick={() => removePhoto(photo.url)} aria-label={`${photo.name} 사진 삭제`}>삭제</button></figure>)}</div>}
-        <small className="viability-photo-notice">사진은 최대 8장·장당 5MB까지 미리 볼 수 있습니다. 현재 미리보기 사진은 아직 계정에 저장되지 않으므로 원본을 함께 보관해주세요.</small>
+        <small className="viability-photo-notice">사진은 최대 8장·장당 5MB까지 미리 볼 수 있습니다. 현재 미리보기 사진은 아직 계정에 저장되지 않으므로 원본을 함께 보관해주세요.</small></>}
       </div>
     </details>
 
-    <AnalysisSavePanel analysis={analysis} scenario={ready && customPlan ? { assumptions, competitors } : undefined} onLoad={onLoad} />
-    {mode === 'details' && <div className="viability-consultation"><h3>숫자와 현장 조건이 맞는지 함께 확인해보세요</h3><p>더파운트의 정밀 개원분석에서 실제 임대조건과 진료계획을 검토할 수 있습니다.</p><a href="https://www.thefount.co.kr/contact" target="_blank" rel="noopener noreferrer">정밀 개원분석 상담하기</a></div>}
+    {!IS_TOSS && <AnalysisSavePanel analysis={analysis} scenario={ready && customPlan ? { assumptions, competitors } : undefined} onLoad={onLoad} />}
+    {!IS_TOSS && mode === 'details' && <div className="viability-consultation"><h3>숫자와 현장 조건이 맞는지 함께 확인해보세요</h3><p>더파운트의 정밀 개원분석에서 실제 임대조건과 진료계획을 검토할 수 있습니다.</p><a href="https://www.thefount.co.kr/contact" target="_blank" rel="noopener noreferrer">정밀 개원분석 상담하기</a></div>}
     <details>
       <summary>자동 계산에 사용한 기준 보기</summary>
       <p>주요 연령층, 직장인·방문 인구, 의료상권 유입, 같은 과 병원의 거리와 확인된 의원 규모, 예상 운영비를 반영했습니다. 개원 사업성은 손익분기점, 환자가 적게 올 때의 적자 위험, 영업이익, 투자금 회수기간, 월세와 대출 상환 부담을 함께 계산합니다.</p>

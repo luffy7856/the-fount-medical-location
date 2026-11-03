@@ -7,6 +7,7 @@ import { refineClinicalAnalysis } from '@/data/clinical-evaluation';
 import { competitionSignal } from "@/data/competition-signal";
 import { populationScoreCap } from "@/data/location-score-v2";
 import { isHumanMedicalPlace } from "@/data/medical-place-filter";
+import { tossPreflight, withTossCors } from "@/lib/toss-cors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -729,7 +730,7 @@ async function developmentAnalysisFallback(body: Record<string, unknown>, specia
   } catch { return null; }
 }
 
-export async function POST(request: NextRequest) {
+async function handle(request: NextRequest) {
   try {
     const body = await request.json();
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "분석 입력을 확인해주세요." }, { status: 400 });
@@ -860,3 +861,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: error instanceof LocationLookupError ? 422 : 500 });
   }
 }
+
+// 앱인토스 미니앱: CORS + modest rate limit for the tossmini origins only (src/lib/toss-cors.ts).
+export const POST = withTossCors("analyze", { perIp: 30, windowMs: 600_000, perInstancePerHour: 600 }, handle);
+export const OPTIONS = tossPreflight;

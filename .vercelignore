@@ -8,3 +8,4 @@ output
 tmp
 *.tsbuildinfo
 VIABILITY-IMPLEMENTATION.md
+toss/

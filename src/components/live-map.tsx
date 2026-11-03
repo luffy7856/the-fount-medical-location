@@ -1,6 +1,7 @@
 "use client";
 
-import { Circle, CircleMarker, MapContainer, Marker, Popup, Rectangle, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { Circle, CircleMarker, MapContainer, Marker, Popup, Rectangle, useMap, useMapEvents } from "react-leaflet";
+import BaseLayer from "./base-layer";
 import { divIcon } from "leaflet";
 import type { LocationAnalysis, LivePlace } from "@/data/location-types";
 import { useEffect, useState } from "react";
@@ -154,10 +155,7 @@ export default function LiveMap({ analysis, activeKinds, populationActive, selec
   const densityCells = populationGrid(analysis);
   useEffect(() => { setPendingCoordinate(null); }, [latitude, longitude]);
   return <MapContainer center={[latitude, longitude]} zoom={15} className="leaflet-live-map" zoomControl={false} preferCanvas>
-    <TileLayer
-      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      url={process.env.NEXT_PUBLIC_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
-    />
+    <BaseLayer />
     <MapUpdater latitude={latitude} longitude={longitude} radius={analysis.radiusMeters} />
     <MapClick onSelect={(nextLatitude, nextLongitude) => setPendingCoordinate({ latitude: nextLatitude, longitude: nextLongitude })} />
     {pendingCoordinate && <MapSelectionConfirmation

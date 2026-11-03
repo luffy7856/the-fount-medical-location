@@ -18,6 +18,7 @@ import { locationResult, locationNarrative } from "@/data/location-result";
 import { populationScoreCap } from "@/data/location-score-v2";
 import { refineClinicalAnalysis, clinicalScoreLabel } from '@/data/clinical-evaluation';
 import { ForecastDrivers } from './forecast-drivers';
+import { IS_TOSS, apiBase } from "@/lib/toss-env";
 
 const LiveMap = dynamic(() => import("./live-map"), { ssr: false, loading: () => <div className="map-loading"><Activity className="spin" /> 지도를 불러오는 중</div> });
 
@@ -102,6 +103,7 @@ async function readAnalysisResponse<T>(response: Response, fallbackMessage: stri
 }
 
 function Brand() {
+  if (IS_TOSS) return <div className="brand fount-logo"><span>THE</span> FOUNT<small>MEDICAL LOCATION</small></div>;
   return <a className="brand fount-logo" href="/location" aria-label="입지분석 첫 화면"><span>THE</span> FOUNT<small>MEDICAL LOCATION</small></a>;
 }
 
@@ -262,7 +264,7 @@ function OverviewPanel({ analysis, onTab, aiLoading, embedded = false }: { analy
     <RegionalProfileBlock analysis={analysis} />
     <OperatingResult analysis={analysis} showContractChecks={!embedded} />
     {!embedded && <button className="profitability-entry" type="button" onClick={() => onTab("profitability")}><span><Calculator /><b>수익성은 입력값으로 직접 확인하세요</b><small>환자 수와 운영비를 입력하면 손익분기점·잔여현금·회수기간을 비교할 수 있습니다.</small></span><ChevronRight /></button>}
-    {!embedded && <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><a className="next-step-link" href="https://www.thefount.co.kr/" target="_blank" rel="noopener noreferrer">정밀 개원분석 상담하기 <ArrowRight /></a></section>}
+    {!embedded && !IS_TOSS && <section className="panel-section next-step"><span>THE FOUNT NEXT STEP</span><h3>지도 결과를 실제 개원계획으로 연결하세요</h3><p>입지·개원자금·인건비·장비·세금·손익분기점을 함께 검토합니다.</p><a className="next-step-link" href="https://www.thefount.co.kr/" target="_blank" rel="noopener noreferrer">정밀 개원분석 상담하기 <ArrowRight /></a></section>}
     {!embedded && <section className="source-note"><b>확인에 사용한 자료</b><div><span>주변 지도 정보</span>{analysis.hiraMedical?.status === "available" && <span>건강보험심사평가원</span>}{analysis.demographics && <span>지역 인구 {analysis.demographics.year}</span>}{analysis.livingPopulation?.status === "available" && <span>시간대별 주변 인구</span>}{analysis.consumerPower?.status === "available" && <span>지역 소비 수준</span>}{analysis.rentMarket?.status === "available" && <span>상가 임대료</span>}{analysis.developmentPlans?.status === "available" && <span>주변 개발계획</span>}</div><small>{formatAnalysisTime(analysis.analyzedAt)} 기준 · 공개자료의 등록 시점에 따라 실제 현장과 차이가 있을 수 있습니다.</small></section>}
     <PrintAppendix analysis={analysis} />
   </div>;
@@ -301,7 +303,7 @@ function CompetitorPanel({ analysis, selected, onSelect }: { analysis: LocationA
   return <div className="panel-content"><div className="section-intro"><span>주변의 같은 진료과</span><h2>{analysis.specialty === "기타" ? "전체 의료기관" : `${analysis.specialty} 경쟁병원`} {analyzed ? `${hospitals.length}곳` : "분석 대기"}</h2><p>선택한 주소에서 {analysis.radiusMeters.toLocaleString()}m 안에 있는 같은 진료과를 보여드립니다.</p><small className="source-split">병원 이름과 등록 분류를 기준으로 찾았습니다. 실제 진료내용과 전문의 여부는 해당 병원에서 다시 확인해주세요.</small>{analysis.specialty === "비뇨기과" && <small className="source-split">‘비뇨기과’와 ‘비뇨의학과’ 명칭을 함께 찾습니다.</small>}</div>
     <p className="source-split">{!analyzed ? '아직 주소를 분석하지 않았습니다.' : `지도에서 확인한 ${hospitals.length}곳의 목록입니다.${(analysis.mapCountLimits || analysis.countLimits)?.matchingSpecialty ? ' 검색 제공자의 한도에 도달해 추가 기관이 누락될 수 있습니다.' : ''}${analysis.hiraMedical?.matchingSpecialtyCount !== undefined ? ` HIRA 신고 기준은 ${analysis.hiraMedical.matchingSpecialtyCount}곳이며, 등록 시점·기관 분류가 달라 지도 목록과 일치하지 않을 수 있습니다.` : ''} 기존 병원의 주소를 분석하면 그 병원도 목록에 포함될 수 있습니다.`}</p>
     {current && <><div className="hospital-detail"><div className="hospital-avatar"><Hospital /></div><div><span>선택한 실제 의료기관</span><h3>{current.name}</h3><p>{current.specialty || "의료기관"} · {current.distanceMeters.toLocaleString()}m</p></div><b>LIVE</b></div><div className="detail-grid"><span>거리 <b>{current.distanceMeters.toLocaleString()}m</b></span><span>출처 <b>{analysis.provider === "kakao" ? "Kakao" : "OSM"}</b></span><span className="wide">주소 <b>{current.address || "공개 주소 없음"}</b></span></div></>}
-    <div className="list-heading"><h3>거리순 의료기관</h3><span>{hospitals.length > 40 ? `가까운 40곳 / 전체 ${hospitals.length}곳 · 카카오맵에서 보기` : "클릭하면 카카오맵에서 열립니다"}</span></div><div className="hospital-list">{hospitals.length ? hospitals.slice(0, 40).map(place => <a key={place.id} href={kakaoPlaceLink(place)} target="_blank" rel="noopener noreferrer" aria-label={`${place.name} 카카오맵에서 보기 (새 탭)`} className={current?.id === place.id ? "active" : ""} onClick={() => onSelect(place)}><span className="dot age-fresh" /><div><b>{place.name}</b><small>{place.specialty || "의료기관"} · {place.distanceMeters.toLocaleString()}m</small></div><strong>{place.distanceMeters}m</strong><ExternalLink /></a>) : <div className="empty-state">{!analyzed ? "주소를 입력한 뒤 분석하기를 눌러주세요." : "지도 검색에서 확인된 기관이 없습니다. 실제 기관 부재를 뜻하지 않으며 HIRA 자료와 현장을 함께 확인해주세요."}</div>}</div>
+    <div className="list-heading"><h3>거리순 의료기관</h3><span>{IS_TOSS ? (hospitals.length > 40 ? `가까운 40곳 / 전체 ${hospitals.length}곳` : "누르면 위 상세에 표시됩니다") : hospitals.length > 40 ? `가까운 40곳 / 전체 ${hospitals.length}곳 · 카카오맵에서 보기` : "클릭하면 카카오맵에서 열립니다"}</span></div><div className="hospital-list">{hospitals.length ? hospitals.slice(0, 40).map(place => IS_TOSS ? <button type="button" key={place.id} className={current?.id === place.id ? "active" : ""} onClick={() => onSelect(place)}><span className="dot age-fresh" /><div><b>{place.name}</b><small>{place.specialty || "의료기관"} · {place.distanceMeters.toLocaleString()}m</small></div><strong>{place.distanceMeters}m</strong></button> : <a key={place.id} href={kakaoPlaceLink(place)} target="_blank" rel="noopener noreferrer" aria-label={`${place.name} 카카오맵에서 보기 (새 탭)`} className={current?.id === place.id ? "active" : ""} onClick={() => onSelect(place)}><span className="dot age-fresh" /><div><b>{place.name}</b><small>{place.specialty || "의료기관"} · {place.distanceMeters.toLocaleString()}m</small></div><strong>{place.distanceMeters}m</strong><ExternalLink /></a>) : <div className="empty-state">{!analyzed ? "주소를 입력한 뒤 분석하기를 눌러주세요." : "지도 검색에서 확인된 기관이 없습니다. 실제 기관 부재를 뜻하지 않으며 HIRA 자료와 현장을 함께 확인해주세요."}</div>}</div>
   </div>;
 }
 
@@ -478,7 +480,7 @@ export default function LocationLab() {
     const requestId = ++aiInsightRequestRef.current;
     setAiLoading(true);
     try {
-      const response = await fetch("/location/api/ai-insight", {
+      const response = await fetch(`${apiBase}/api/ai-insight`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ analysis: { ...source, places: [] }, language: document.documentElement.lang })
@@ -520,11 +522,11 @@ export default function LocationLab() {
         populationDate,
         populationHour
       };
-      const response = await fetch("/location/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody), signal: controller.signal });
+      const response = await fetch(`${apiBase}/api/analyze`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody), signal: controller.signal });
       let result = await readAnalysisResponse<LocationAnalysis>(response, "분석 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
       if (result.needsClientFetch && result.osmQuery) {
         const liveData = await fetchOsmInBrowser(result.osmQuery, controller.signal);
-        const completedResponse = await fetch("/location/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: result.location.displayName, latitude: result.location.latitude, longitude: result.location.longitude, specialty: result.specialty, radiusMeters: result.radiusMeters, osmElements: liveData.elements || [] }), signal: controller.signal });
+        const completedResponse = await fetch(`${apiBase}/api/analyze`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: result.location.displayName, latitude: result.location.latitude, longitude: result.location.longitude, specialty: result.specialty, radiusMeters: result.radiusMeters, osmElements: liveData.elements || [] }), signal: controller.signal });
         result = await readAnalysisResponse<LocationAnalysis>(completedResponse, "조회 결과를 분석하지 못했습니다. 잠시 후 다시 시도해주세요.");
       }
       if (requestId !== analysisRequestRef.current || controller.signal.aborted) return;
@@ -602,7 +604,7 @@ export default function LocationLab() {
     const timer = window.setTimeout(async () => {
       setPopulationLoading(true);
       try {
-        const response = await fetch("/location/api/living-population", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ administrativeCode, date: populationDate, hour: populationHour, latitude: analysis.location.latitude, longitude: analysis.location.longitude, radiusMeters: analysis.radiusMeters }), signal: controller.signal });
+        const response = await fetch(`${apiBase}/api/living-population`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ administrativeCode, date: populationDate, hour: populationHour, latitude: analysis.location.latitude, longitude: analysis.location.longitude, radiusMeters: analysis.radiusMeters }), signal: controller.signal });
         const result = await response.json() as LivingPopulation;
         if (response.ok && !controller.signal.aborted) setAnalysis(current => current.location.latitude === analysis.location.latitude && current.location.longitude === analysis.location.longitude && current.radiusMeters === analysis.radiusMeters ? withLivingPopulation(current, result) : current);
       } catch (caught) {
@@ -628,9 +630,9 @@ export default function LocationLab() {
   }, [runAnalysis]);
 
   return <main id="top" className="app-shell">
-    <header className="app-header"><Brand /><div className="header-status"><span><i /> 실시간 분석</span><h1 style={{ fontSize: 12, lineHeight: 1.6, margin: 0 }}>병원 입지분석</h1></div><nav><button disabled={reportDownloading} onClick={() => void downloadReport()}>{reportDownloading ? <Activity className="spin" /> : <Download />} <span className="report-download-label">분석레포트 다운로드</span></button><button className="print-action" onClick={printReport} title="현재 화면 인쇄"><Printer /> 프린트</button></nav><a className="fount-home-link" href="https://www.thefount.co.kr/">더파운트 홈페이지 ↗</a><button aria-label={mobileFilter ? "검색 조건 닫기" : "검색 조건 열기"} aria-expanded={mobileFilter} className="mobile-menu" onClick={() => setMobileFilter(!mobileFilter)}>{mobileFilter ? <X /> : <Menu />}</button></header>
+    <header className="app-header"><Brand /><div className="header-status"><span><i /> 실시간 분석</span><h1 style={{ fontSize: 12, lineHeight: 1.6, margin: 0 }}>병원 입지분석</h1></div>{!IS_TOSS && <nav><button disabled={reportDownloading} onClick={() => void downloadReport()}>{reportDownloading ? <Activity className="spin" /> : <Download />} <span className="report-download-label">분석레포트 다운로드</span></button><button className="print-action" onClick={printReport} title="현재 화면 인쇄"><Printer /> 프린트</button></nav>}{!IS_TOSS && <a className="fount-home-link" href="https://www.thefount.co.kr/">더파운트 홈페이지 ↗</a>}<button aria-label={mobileFilter ? "검색 조건 닫기" : "검색 조건 열기"} aria-expanded={mobileFilter} className="mobile-menu" onClick={() => setMobileFilter(!mobileFilter)}>{mobileFilter ? <X /> : <Menu />}</button></header>
     <form className={`filter-bar live-filter ${mobileFilter ? "mobile-open" : ""}`} onSubmit={submit}>
-      <label className="search-field"><Search /><input aria-label="분석할 주소" value={addressInput} onChange={event => setAddressInput(event.target.value)} placeholder="알아볼 주소나 건물 이름을 입력하세요" /><button type="button" aria-label="현재 위치로 분석" title="현재 위치" onClick={useCurrentLocation}><LocateFixed /></button></label>
+      <label className="search-field"><Search /><input aria-label="분석할 주소" value={addressInput} onChange={event => setAddressInput(event.target.value)} placeholder="알아볼 주소나 건물 이름을 입력하세요" />{!IS_TOSS && <button type="button" aria-label="현재 위치로 분석" title="현재 위치" onClick={useCurrentLocation}><LocateFixed /></button>}</label>
       <div className="filter-picker"><span>진료과</span><select ref={specialtySelectRef} aria-label="진료과 선택" value={specialty} onChange={event => setSpecialty(event.target.value as Specialty)}>{specialties.map(item => <option key={item}>{item}</option>)}</select><button type="button" aria-label="진료과 메뉴 열기" onClick={() => openPicker(specialtySelectRef)}><ChevronDown /></button></div>
       <div className="filter-picker"><span>주변 범위</span><select ref={radiusSelectRef} aria-label="주변 범위 선택" value={radiusMeters} onChange={event => setRadiusMeters(Number(event.target.value))}>{[[300, "가까운 주변 300m"], [500, "걸어서 약 7분 500m"], [1000, "주변 생활권 1km"], [3000, "넓은 지역 3km"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button type="button" aria-label="주변 범위 메뉴 열기" onClick={() => openPicker(radiusSelectRef)}><ChevronDown /></button></div>
       <button className="analyze-button" type="submit">{loading ? <Activity className="spin" /> : <BarChart3 />} 이 주소 분석하기</button>
@@ -667,6 +669,7 @@ export default function LocationLab() {
           {tab === "profitability" && <div className="panel-content"><FinancialPlanningPanel analysis={analysis} inputs={openingInputs} onChange={setOpeningInputs} /></div>}
           {tab === "compare" && <ComparePanel saved={saved} onOpen={openSavedAnalysis} onRemove={removeSavedAnalysis} onClear={() => setSaved([])} />}
         </div>
+        {IS_TOSS && <footer className="toss-credit"><p>참고용 결과이며 계약·신고·투자 전 전문가와 확인하세요.</p><small>by 더파운트 (THE FOUNT)</small></footer>}
       </aside>
     </div>
     {loading && <div className="loading-mask" role="status" aria-live="polite"><div className="analysis-loading-card">

@@ -1,0 +1,28 @@
+<!doctype html><html><body style="margin:0;background:#fff">
+<!-- 병원 입지분석 — 앱인토스 logo (600×600): the analysis pin of the map (navy body, gold core) inside the dashed
+     search radius, with nearby facility dots, on The Fount navy→teal. Rendered to logo-600.png by sample/logo.mjs. -->
+<svg id="s" width="600" height="600" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg">
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#173a52"/><stop offset=".6" stop-color="#14263d"/><stop offset="1" stop-color="#0d1b2c"/></linearGradient>
+ <radialGradient id="area" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#35d0b0" stop-opacity=".34"/><stop offset="1" stop-color="#0f937d" stop-opacity=".08"/></radialGradient>
+ <linearGradient id="pin" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dfe8ec"/></linearGradient>
+ <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f3e4c4"/><stop offset="1" stop-color="#b39a6b"/></linearGradient>
+</defs>
+<rect width="600" height="600" fill="url(#bg)"/>
+<!-- streets -->
+<g stroke="#ffffff" stroke-opacity=".07" stroke-width="18" stroke-linecap="round"><path d="M-20 410 L620 250"/><path d="M180 -20 L300 620"/><path d="M430 -20 L520 620"/></g>
+<!-- radius -->
+<circle cx="300" cy="318" r="208" fill="url(#area)"/>
+<circle cx="300" cy="318" r="208" fill="none" stroke="#35d0b0" stroke-width="7" stroke-dasharray="20 16" stroke-linecap="round"/>
+<circle cx="300" cy="318" r="118" fill="none" stroke="#35d0b0" stroke-opacity=".45" stroke-width="4"/>
+<!-- facility dots -->
+<g stroke="#ffffff" stroke-width="6">
+ <circle cx="172" cy="236" r="19" fill="#e55e48"/><circle cx="430" cy="410" r="19" fill="#e55e48"/><circle cx="452" cy="232" r="15" fill="#3182ce"/>
+ <circle cx="176" cy="428" r="15" fill="#3f8fe6"/><circle cx="362" cy="470" r="13" fill="#0f937d"/>
+</g>
+<!-- analysis pin -->
+<ellipse cx="300" cy="420" rx="40" ry="12" fill="#000" opacity=".25"/>
+<path d="M300 416 C268 360 196 300 196 236 a104 104 0 0 1 208 0 c0 64 -72 124 -104 180Z" fill="url(#pin)"/>
+<circle cx="300" cy="236" r="52" fill="url(#gold)"/>
+<circle cx="300" cy="236" r="22" fill="#14263d"/>
+</svg></body></html>

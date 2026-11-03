@@ -1,0 +1,7 @@
+/* Toss-only touches (the bundle's own CSS; the website never loads this file). */
+.leaflet-gl-layer{z-index:1}
+.leaflet-control-attribution a{pointer-events:none;color:inherit;text-decoration:none}
+.toss-credit{padding:18px 18px calc(22px + env(safe-area-inset-bottom));border-top:1px solid var(--line);color:#6b7a86;font-size:11px;line-height:1.6}
+.toss-credit p{margin:0 0 4px}
+.toss-credit small{color:#98a5ae;font-size:10px}
+.hospital-list button{width:100%;grid-template-columns:9px minmax(0,1fr) 48px;padding:14px 7px;font:inherit;color:inherit;cursor:pointer}

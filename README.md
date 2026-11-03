@@ -48,3 +48,11 @@ pnpm dev
 ## 배포
 
 Next.js 프로젝트로 구성되어 GitHub 연동을 통한 Vercel 자동 배포를 지원합니다.
+
+## 앱인토스 미니앱 (thefount-location)
+
+`toss/` 폴더는 같은 입지분석 화면(`src/components/location-lab.tsx`)을 앱인토스용 정적 SPA로 묶습니다. 웹사이트 빌드(`next build`)와는 무관하며, `NEXT_PUBLIC_TOSS_BUILD=1`(esbuild define)일 때만 PDF·인쇄, 로그인 저장, 상담·다른 툴·외부 링크, 현재 위치·사진 첨부를 빼고 API를 `https://www.thefount.co.kr/location/api/*`로 호출합니다. 지도 배경은 OpenStreetMap 타일 정책(앱 배포 시 사전 허가 필요) 때문에 OpenFreeMap 벡터 타일(MapLibre)로 바꿉니다(`toss/stubs/base-layer.tsx`). 서버의 `/api/analyze`·`/api/ai-insight`·`/api/living-population`은 tossmini 출처에만 CORS와 IP별 호출 제한을 적용합니다(`src/lib/toss-cors.ts`).
+
+```bash
+pnpm install && cd toss && npm install --legacy-peer-deps && npm run build   # → toss/thefount-location.ait
+```

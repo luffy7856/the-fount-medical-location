@@ -1,0 +1,19 @@
+{
+  "name": "thefount-location-toss",
+  "private": true,
+  "version": "1.0.0",
+  "description": "병원 입지분석 — 앱인토스 미니앱 번들 (src/components 의 입지분석 화면을 정적 SPA로 묶고, API는 www.thefount.co.kr/location 을 호출해요)",
+  "type": "module",
+  "scripts": {
+    "dist": "node build.mjs",
+    "build": "node build.mjs && ait build"
+  },
+  "dependencies": {
+    "@apps-in-toss/web-framework": "3.9.0",
+    "@maplibre/maplibre-gl-leaflet": "0.1.3",
+    "maplibre-gl": "5.24.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}

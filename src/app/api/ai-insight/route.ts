@@ -3,6 +3,7 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import { buildInsightEvidence, buildRuleInterpretation } from "@/data/ai-insight";
 import type { AiInsightItem, AiInterpretation, LocationAnalysis } from "@/data/location-types";
+import { tossPreflight, withTossCors } from "@/lib/toss-cors";
 
 const MAX_BODY_BYTES = 160_000;
 const WINDOW_MS = 60_000;
@@ -105,7 +106,7 @@ function fallback(analysis: LocationAnalysis, status: AiInterpretation["status"]
   });
 }
 
-export async function POST(request: Request) {
+async function handle(request: Request) {
   const contentLength = Number(request.headers.get("content-length") || "0");
   if (contentLength > MAX_BODY_BYTES) return Response.json({ error: "분석 데이터가 너무 큽니다." }, { status: 413 });
 
@@ -213,3 +214,7 @@ export async function POST(request: Request) {
     );
   }
 }
+
+// 앱인토스 미니앱: CORS + modest rate limit for the tossmini origins only (src/lib/toss-cors.ts).
+export const POST = withTossCors("ai-insight", { perIp: 20, windowMs: 600_000, perInstancePerHour: 300 }, handle);
+export const OPTIONS = tossPreflight;
